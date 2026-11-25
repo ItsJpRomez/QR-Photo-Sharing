@@ -13,6 +13,14 @@ async function choose(page: Page, files: Awaited<ReturnType<typeof pictures>>) {
   await page.getByRole('button', { name: 'Add photos' }).click()
   await page.getByLabel('Choose from library').setInputFiles(files)
 }
+/** Cuts a kind of request off until told otherwise, without removing the rule while requests are in flight. */
+async function cutOff(page: Page, url: string) {
+  let cut = true
+  await page.route(url, (r) => (cut ? r.abort('connectionreset') : r.continue()))
+  return () => {
+    cut = false
+  }
+}
 const stored = (eventId: string) =>
   query<{ n: number }>(`select count(*)::int n from photos where event_id = $1 and status = 'live'`, [eventId]).then((r) => r[0]!.n)
 
@@ -99,12 +107,12 @@ test('closing the page in the middle loses nothing and sends nothing twice', asy
 test('a new PIN in the middle asks for it, then carries on', async ({ page, browser }) => {
   const { event, guest } = await eventWithGuest(page, browser)
   await guest.goto(`/e/${event.code}`)
-  await guest.route('**/api/storage/**/incoming/**', (r) => r.abort('connectionreset'))
+  const reconnect = await cutOff(guest, '**/api/storage/**/incoming/**')
   await choose(guest, await pictures(3))
   await guest.getByRole('button', { name: 'Upload 3 photos' }).click()
   await expect(guest.getByText('No signal, will retry').first()).toBeVisible()
   await hostApi(page, 'PUT', `/api/host/events/${event.id}/pin`, { pin: '4821' })
-  await guest.unrouteAll({ behavior: 'ignoreErrors' })
+  reconnect()
   await expect(guest.getByText('3 photos are waiting')).toBeVisible({ timeout: 30_000 })
   await guest.getByLabel('PIN').fill('4821')
   await guest.getByRole('button', { name: 'Open gallery' }).click()
@@ -114,12 +122,12 @@ test('a new PIN in the middle asks for it, then carries on', async ({ page, brow
 test('a new link in the middle: the old page says so, the new one carries on', async ({ page, browser }) => {
   const { event, guest } = await eventWithGuest(page, browser)
   await guest.goto(`/e/${event.code}`)
-  await guest.route('**/api/storage/**/incoming/**', (r) => r.abort('connectionreset'))
+  const reconnect = await cutOff(guest, '**/api/storage/**/incoming/**')
   await choose(guest, await pictures(2))
   await guest.getByRole('button', { name: 'Upload 2 photos' }).click()
   await expect(guest.getByText('No signal, will retry').first()).toBeVisible()
   const { code } = await hostApi(page, 'POST', `/api/host/events/${event.id}/code`)
-  await guest.unrouteAll({ behavior: 'ignoreErrors' })
+  reconnect()
   await expect(guest.getByText(/open the new link/i)).toBeVisible({ timeout: 30_000 })
   await guest.goto(`/e/${code}`)
   await expect(guest.getByText('2 photos added')).toBeVisible({ timeout: 40_000 })
@@ -138,12 +146,12 @@ test('a file that is not a photo says why, and can be taken off the list', async
 test('closing uploads keeps the photos on the phone until the host reopens', async ({ page, browser }) => {
   const { event, guest } = await eventWithGuest(page, browser)
   await guest.goto(`/e/${event.code}`)
-  await guest.route('**/api/e/*/uploads', (r) => r.abort('connectionreset'))
+  const reconnect = await cutOff(guest, '**/api/e/*/uploads')
   await choose(guest, await pictures(2))
   await guest.getByRole('button', { name: 'Upload 2 photos' }).click()
   await expect(guest.getByText('No signal, will retry').first()).toBeVisible()
   await hostApi(page, 'PUT', `/api/host/events/${event.id}/frozen`, { frozen: true })
-  await guest.unrouteAll({ behavior: 'ignoreErrors' })
+  reconnect()
   await expect(guest.getByText('The host closed uploads').first()).toBeVisible({ timeout: 30_000 })
   await hostApi(page, 'PUT', `/api/host/events/${event.id}/frozen`, { frozen: false })
   await guest.reload()

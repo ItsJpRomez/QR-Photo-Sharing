@@ -287,7 +287,11 @@ export class UploadQueue {
     this.wakeups.get(item.clientId)?.()
     this.wakeups.set(
       item.clientId,
-      this.o.clock.after(ms, () => this.pump()),
+      this.o.clock.after(ms, () => {
+        // Timers can fire a hair early. The wake-up itself says the wait is over.
+        this.notBefore.delete(item.clientId)
+        this.pump()
+      }),
     )
   }
 

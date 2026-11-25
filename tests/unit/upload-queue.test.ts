@@ -368,6 +368,20 @@ describe('bad signal', () => {
   })
 })
 
+test('a timer that fires a hair early does not strand a photo', async () => {
+  // Browsers round timers and clocks differently, so a wake-up can come before its time.
+  const early: Clock = { now: clock.now, after: (ms, fn) => clock.after(Math.max(0, ms - 1), fn) }
+  const q = make({ clock: early })
+  q.start()
+  server.failPut = () => new TransportError('offline', 0)
+  await q.add([file()], TO, META)
+  await settle()
+  expect(states(q)).toEqual(['offline'])
+  server.failPut = undefined
+  await clock.advance(30_000)
+  expect(states(q)).toEqual(['added'])
+})
+
 describe('answers that end it', () => {
   test.each(['bad_type', 'too_large', 'gallery_full', 'guest_limit', 'removed_by_host', 'conflict'])('%s fails without retrying', async (code) => {
     const q = make()
