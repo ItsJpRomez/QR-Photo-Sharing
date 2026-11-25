@@ -2,8 +2,8 @@
 
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Button } from '@/features/ui/button'
+import { useId, useState } from 'react'
+import { Button, buttonClass } from '@/features/ui/button'
 import { ConfirmDialog } from '@/features/ui/dialog'
 import { Field, Input, Notice, Select, Textarea } from '@/features/ui/field'
 import { Switch } from '@/features/ui/switch'
@@ -83,6 +83,50 @@ function Details({ event }: { event: HostEventDto }) {
           </Button>
         </div>
       </form>
+    </Section>
+  )
+}
+
+function Cover({ event }: { event: HostEventDto }) {
+  const id = useId()
+  const path = eventPath(event.id, '/cover')
+  const save = useEventChange(event.id, async (file: File) => {
+    const { uploadId, put } = await api<{ uploadId: string; put: { url: string; headers: Record<string, string> } }>(path, {
+      method: 'POST',
+      body: { size: file.size, mime: file.type },
+    })
+    const sent = await fetch(put.url, { method: 'PUT', headers: put.headers, body: file })
+    if (!sent.ok) throw new Error("The photo didn't upload. Please try again.")
+    return api<HostEventDto>(path, { method: 'PUT', body: { uploadId } })
+  })
+  const remove = useEventChange(event.id, () => api<HostEventDto>(path, { method: 'DELETE' }))
+  const problem = save.error ?? remove.error
+  return (
+    <Section title="Cover photo">
+      {event.coverUrl && <img src={event.coverUrl} alt="Current cover" className="max-h-72 max-w-xl object-cover" />}
+      {problem && <Notice tone="danger">{problem.message}</Notice>}
+      <div className="flex flex-wrap gap-3">
+        <input
+          id={id}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif"
+          className="peer sr-only"
+          disabled={save.isPending}
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) save.mutate(file)
+            e.target.value = ''
+          }}
+        />
+        <label htmlFor={id} className={`${buttonClass({ variant: 'secondary' })} peer-focus-visible:outline-3 peer-focus-visible:outline-plum`}>
+          {save.isPending ? 'Uploading…' : 'Choose cover photo'}
+        </label>
+        {event.coverUrl && (
+          <Button variant="secondary" disabled={remove.isPending} onClick={() => remove.mutate(undefined)}>
+            Remove cover
+          </Button>
+        )}
+      </div>
     </Section>
   )
 }
@@ -225,6 +269,7 @@ export function Settings({ id }: { id: string }) {
   return (
     <div className="grid gap-8">
       <Details event={event} />
+      <Cover event={event} />
       <Features event={event} />
       <Access event={event} />
     </div>

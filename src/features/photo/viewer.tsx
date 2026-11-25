@@ -12,6 +12,7 @@ import type { OpenEventDto } from '@/modules/events/view'
 import type { PhotoDto } from '@/modules/photos/query'
 import { Comments } from './comments'
 import { HeartButton, useHeart } from './heart'
+import { HostTools } from './host-tools'
 import { PhotoImage } from './photo-image'
 
 type Props = {
@@ -142,6 +143,7 @@ export function Viewer({ event, photo, previous, next, onMove, onClose, onStale 
                 Download
               </button>
             )}
+            {event.me.kind === 'host' && <HostTools event={event} photo={photo} className={control} />}
             {photo.canDelete && (
               <button type="button" className={control} onClick={() => setDeleting(true)}>
                 Delete

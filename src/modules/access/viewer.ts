@@ -28,7 +28,7 @@ async function findEvent(by: { code: string } | { eventId: string }): Promise<Ev
   return event
 }
 
-async function hostParticipant(event: EventRow, user: session.SessionUser): Promise<ParticipantRow> {
+export async function hostParticipant(event: EventRow, user: session.SessionUser): Promise<ParticipantRow> {
   const mine = and(eq(participants.eventId, event.id), eq(participants.userId, user.id))
   const [existing] = await db.select().from(participants).where(mine)
   if (existing) return existing

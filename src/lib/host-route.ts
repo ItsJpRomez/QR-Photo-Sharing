@@ -1,11 +1,12 @@
 import * as session from '@/auth/session'
 import type { EventRow } from '@/db/schema'
-import { requireOwnedEvent } from '@/modules/access/viewer'
+import type { Viewer } from '@/modules/access/can'
+import { hostParticipant, requireOwnedEvent } from '@/modules/access/viewer'
 import { AppError } from './errors'
 import { route, type RouteHandler } from './route'
 
 type Params = Record<string, string>
-type Extra<P> = { params: P; event: EventRow; user: session.SessionUser }
+type Extra<P> = { params: P; event: EventRow; user: session.SessionUser; viewer: Extract<Viewer, { kind: 'host' }> }
 
 /** A route for the event's owner. Anyone else is told it doesn't exist. */
 export function hostRoute<P extends Params & { id: string }>(
@@ -15,7 +16,9 @@ export function hostRoute<P extends Params & { id: string }>(
   return route<P>(async (req, ctx) => {
     const params = await ctx.params
     const user = await session.requireUser(req.headers)
-    return fn(req, { params, user, event: await requireOwnedEvent(user.id, params.id, o) })
+    const event = await requireOwnedEvent(user.id, params.id, o)
+    const me = await hostParticipant(event, user)
+    return fn(req, { params, user, event, viewer: { kind: 'host', eventId: event.id, participantId: me.id, userId: user.id } })
   })
 }
 

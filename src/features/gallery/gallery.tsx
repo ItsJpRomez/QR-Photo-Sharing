@@ -66,6 +66,11 @@ export function Gallery({ event }: { event: OpenEventDto }) {
     else setAddress({ photo: null })
     pushed.current = false
   }
+  // Taken down while it was open here.
+  const vanished = openId !== null && !open && !elsewhere.isPending && photos.data !== undefined
+  useEffect(() => {
+    if (vanished) setAddress({ photo: null })
+  }, [vanished])
   const lastOpen = useRef<string | null>(null)
   useEffect(() => {
     if (!openId && lastOpen.current) {

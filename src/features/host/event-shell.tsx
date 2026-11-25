@@ -11,6 +11,7 @@ import { useHostEvent } from './queries'
 
 const TABS = [
   ['', 'Photos'],
+  ['/waiting', 'Waiting'],
   ['/organize', 'Albums & tags'],
   ['/settings', 'Settings'],
 ] as const

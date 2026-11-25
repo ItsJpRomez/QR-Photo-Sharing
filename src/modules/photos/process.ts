@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { db, withTx, type Tx } from '@/db/client'
 import { events, participants, photoContributors, photos, type EventRow, type PhotoRow } from '@/db/schema'
 import { AppError } from '@/lib/errors'
@@ -40,15 +40,26 @@ export async function failPhoto(photoId: string, failureCode: string): Promise<v
 
 type Outcome = 'published' | 'duplicate' | 'removed_by_host' | 'gone' | 'done_elsewhere'
 
-/** Another photo in this event with the same bytes, if there is one. */
-async function sameBytes(tx: Tx, photo: PhotoRow, sha256: string) {
+/**
+ * This photo, and any others in the event with the same bytes, held so they
+ * can't change until the outcome is decided. Locked in a fixed order.
+ */
+async function holdSame(tx: Tx, photo: Pick<PhotoRow, 'id' | 'eventId'>, sha256: string) {
   const same = await tx
-    .select({ id: photos.id, status: photos.status, deletedBy: photos.deletedBy })
+    .select({ id: photos.id })
     .from(photos)
     .where(and(eq(photos.eventId, photo.eventId), eq(photos.sha256, sha256), inArray(photos.status, ['pending', 'live', 'hidden', 'deleted'])))
+  const held = await tx
+    .select()
+    .from(photos)
+    .where(inArray(photos.id, [photo.id, ...same.map((p) => p.id)]))
+    .orderBy(asc(photos.id))
+    .for('update')
+  const others = held.filter((p) => p.id !== photo.id)
   return {
-    kept: same.find((p) => p.status !== 'deleted' && p.id !== photo.id),
-    removedByHost: same.some((p) => p.status === 'deleted' && p.deletedBy === 'host'),
+    now: held.find((p) => p.id === photo.id),
+    kept: others.find((p) => p.status !== 'deleted'),
+    removedByHost: others.some((p) => p.status === 'deleted' && p.deletedBy === 'host'),
   }
 }
 
@@ -87,11 +98,10 @@ export async function processPhoto(photoId: string): Promise<void> {
   const outcome = await withTx<Outcome>(async (tx) => {
     // One at a time for identical bytes, so two guests sending the same photo can't both publish it.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`hash:${event.id}:${sha256}`}, 0))`)
-    const [now] = await tx.select().from(photos).where(eq(photos.id, photoId)).for('update')
+    const { now, kept, removedByHost } = await holdSame(tx, photo, sha256)
     if (!now || now.status === 'deleted') return 'gone'
     if (now.status !== 'processing') return 'done_elsewhere'
 
-    const { kept, removedByHost } = await sameBytes(tx, now, sha256)
     if (kept) {
       await tx.insert(photoContributors).values({ photoId: kept.id, participantId: now.participantId }).onConflictDoNothing()
       await transition(tx, photoId, ['processing'], 'duplicate', { duplicateOf: kept.id, sha256 })

@@ -11,6 +11,8 @@ type Props = {
   loadMore: () => void
   onOpen: (id: string) => void
   onStale: (id: string) => void
+  /** Given while choosing several photos. */
+  selected?: ReadonlySet<string>
   /** Just came in. */
   arrived?: ReadonlySet<string>
 }
@@ -29,7 +31,7 @@ export function tileLabel(p: PhotoDto): string {
   return `Photo by ${p.uploader}${badge ? `, ${badge.toLowerCase()}` : ''}`
 }
 
-export function PhotoGrid({ photos, hasMore, loadMore, onOpen, onStale, arrived }: Props) {
+export function PhotoGrid({ photos, hasMore, loadMore, onOpen, onStale, arrived, selected }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ width: 0, top: 0 })
 
@@ -67,7 +69,7 @@ export function PhotoGrid({ photos, hasMore, loadMore, onOpen, onStale, arrived 
   }, [hasMore, lastRow, rows, loadMore])
 
   return (
-    <div ref={ref} className="relative mx-auto max-w-6xl" style={{ height: virtual.getTotalSize() }}>
+    <div ref={ref} className="relative mx-auto w-full max-w-6xl" style={{ height: virtual.getTotalSize() }}>
       {items.map((row) => (
         <div
           key={row.key}
@@ -86,11 +88,17 @@ export function PhotoGrid({ photos, hasMore, loadMore, onOpen, onStale, arrived 
               data-testid="tile"
               data-photo={p.id}
               aria-label={tileLabel(p)}
+              aria-pressed={selected?.has(p.id)}
               onClick={() => onOpen(p.id)}
               className="relative block overflow-hidden bg-line focus-visible:z-10"
             >
               <PhotoImage photo={p} size="thumb" onStale={onStale} className="absolute inset-0 size-full" />
               {arrived?.has(p.id) && <span aria-hidden className="camera-flash absolute inset-0" />}
+              {selected?.has(p.id) && (
+                <span aria-hidden className="absolute inset-0 grid place-items-start border-4 border-flash bg-plum/40 p-1">
+                  <span className="grid size-6 place-items-center rounded-full bg-flash font-bold text-ink">✓</span>
+                </span>
+              )}
               {BADGE[p.status] && (
                 <span className="absolute inset-x-0 bottom-0 bg-ink/85 px-1 py-0.5 text-xs font-semibold text-white">{BADGE[p.status]}</span>
               )}
