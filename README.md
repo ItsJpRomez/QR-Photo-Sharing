@@ -53,7 +53,7 @@ On 2026-11-25, on one Mac running everything (web, worker, Postgres, local stora
 
 | What | Result | Target |
 |---|---|---|
-| 200 guests watching, 500 uploads an hour, 10 minutes: time from upload confirmed to visible on another screen | 1.9 s median, **2.2 s** at 95%, 2.7 s at most. All 16,600 deliveries arrived | 5 s at 95% |
+| 200 guests watching, 500 uploads an hour, 10 minutes: time from upload confirmed to visible on another screen | 1.9 s median, **2.2 s** at 95%, 2.7 s at most. All 16,600 deliveries arrived. A 3-minute rerun after the review fixes: 1.9 s median, 2.4 s at 95%, all 5,000 arrived | 5 s at 95% |
 | Memory during that run | web 90-247 MB, worker 126-395 MB, not growing | steady |
 | Gallery on simulated Fast 4G and a slow phone (Lighthouse) | content visible in 0.8 s, largest in 0.9 s. Test thumbnails were small, so real photos take somewhat longer | 2.5 s |
 | 10 GB export | 16 s, at most 382 MB of memory. Download cut at 40% and resumed was identical, and every file checked out | completes and resumes |
