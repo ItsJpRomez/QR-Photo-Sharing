@@ -25,3 +25,12 @@ test('gallery', async ({ page, browser }) => {
   await page.waitForTimeout(500)
   await page.screenshot({ path: '.superpowers/shots/settings-390.png', fullPage: true })
 })
+
+test('public pages', async ({ page }) => {
+  for (const [w, h] of [[390, 844], [1280, 800]] as const) {
+    await page.setViewportSize({ width: w, height: h })
+    await page.goto('/')
+    await page.waitForTimeout(2800)
+    await page.screenshot({ path: `.superpowers/shots/home-${w}.png`, fullPage: true })
+  }
+})
