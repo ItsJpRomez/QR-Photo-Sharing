@@ -22,7 +22,7 @@ export function hourStart(now: Date): Date {
 
 /** A download header that survives quotes, line breaks and accents. */
 export function attachment(name: string): string {
-  // eslint-disable-next-line no-control-regex
+   
   const clean = name.replace(/[\u0000-\u001f\u007f]/g, '').trim() || 'photo'
   const ascii = clean.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
   const utf8 = encodeURIComponent(clean).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)

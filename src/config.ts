@@ -20,6 +20,8 @@ const schema = z.object({
   S3_SECRET_ACCESS_KEY: optional,
   SMTP_URL: optional,
   MAIL_FROM: optional,
+  /** Browser tests read emails from this file. Local only. */
+  MAIL_OUTBOX_FILE: optional,
   GOOGLE_CLIENT_ID: optional,
   GOOGLE_CLIENT_SECRET: optional,
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
@@ -37,7 +39,7 @@ export type Config = {
   secret: string
   databaseUrl: string
   storage: { driver: 'disk'; dir: string } | ({ driver: 's3' } & S3Config)
-  mail: { smtpUrl?: string; from: string }
+  mail: { smtpUrl?: string; from: string; outboxFile?: string }
   google?: { clientId: string; clientSecret: string }
   trustedProxyHops: number
   reportEmail: string
@@ -98,7 +100,11 @@ export function parseConfig(env: Record<string, string | undefined>): Config {
     secret: e.APP_SECRET,
     databaseUrl: e.DATABASE_URL,
     storage,
-    mail: { smtpUrl: e.SMTP_URL, from: e.MAIL_FROM ?? `${appName} <noreply@localhost>` },
+    mail: {
+      smtpUrl: e.SMTP_URL,
+      from: e.MAIL_FROM ?? `${appName} <noreply@localhost>`,
+      outboxFile: local ? e.MAIL_OUTBOX_FILE : undefined,
+    },
     google:
       e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET
         ? { clientId: e.GOOGLE_CLIENT_ID, clientSecret: e.GOOGLE_CLIENT_SECRET }

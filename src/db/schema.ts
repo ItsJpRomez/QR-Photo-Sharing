@@ -53,7 +53,7 @@ export const events = pgTable(
     timeZone: text('time_zone').notNull(),
     coverKey: text('cover_key'),
     welcome: text('welcome').notNull().default(''),
-    accent: text('accent').notNull().default('#8a4b3c'),
+    accent: text('accent').notNull().default('#4a2370'),
     settings: jsonb('settings').$type<EventSettings>().notNull().default(DEFAULT_SETTINGS),
     pinHash: text('pin_hash'),
     pinVersion: integer('pin_version').notNull().default(0),

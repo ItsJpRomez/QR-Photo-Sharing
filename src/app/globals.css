@@ -1,1 +1,77 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/bricolage-grotesque';
+@import '@fontsource-variable/instrument-sans';
+
+/* Evening plum, with camera-flash yellow kept for focus and for moments a photo arrives. */
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-paper: #f6f5f9;
+  --color-sheet: #ffffff;
+  --color-ink: #2b1b3d;
+  --color-ink-soft: #65597a;
+  --color-line: #ddd8e6;
+  --color-line-strong: #8d829f;
+  --color-plum: #4a2370;
+  --color-plum-deep: #36184f;
+  --color-plum-wash: #ede6f5;
+  --color-flash: #ffd84d;
+  --color-danger: #a3172e;
+  --color-danger-wash: #fbe9ec;
+  --color-ok: #17623f;
+  --color-ok-wash: #e3f3ea;
+  --font-display: 'Bricolage Grotesque Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Instrument Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --radius-control: 10px;
+  --radius-sheet: 18px;
+}
+
+@layer base {
+  html {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    line-height: 1.12;
+    text-wrap: balance;
+    letter-spacing: -0.015em;
+  }
+  button,
+  [role='button'],
+  summary,
+  label[for],
+  select {
+    cursor: pointer;
+  }
+  :disabled {
+    cursor: not-allowed;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-plum);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--color-flash);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

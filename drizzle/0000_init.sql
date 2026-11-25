@@ -30,7 +30,7 @@ CREATE TABLE "events" (
 	"time_zone" text NOT NULL,
 	"cover_key" text,
 	"welcome" text DEFAULT '' NOT NULL,
-	"accent" text DEFAULT '#8a4b3c' NOT NULL,
+	"accent" text DEFAULT '#4a2370' NOT NULL,
 	"settings" jsonb DEFAULT '{"hearts":true,"comments":true,"guestDownloads":true,"approval":false,"defaultOrder":"newest","tv":{"seconds":7,"albumId":null,"showNames":true,"showQr":true,"showPin":false}}'::jsonb NOT NULL,
 	"pin_hash" text,
 	"pin_version" integer DEFAULT 0 NOT NULL,

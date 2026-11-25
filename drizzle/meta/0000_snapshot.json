@@ -1,5 +1,5 @@
 {
-  "id": "34980ca8-ee31-4a75-ad08-ac1aefafd52b",
+  "id": "8532ff29-84b1-48f2-a85e-e5f3d96ca162",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -282,7 +282,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'#8a4b3c'"
+          "default": "'#4a2370'"
         },
         "settings": {
           "name": "settings",
