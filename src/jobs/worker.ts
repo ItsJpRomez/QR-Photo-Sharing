@@ -2,6 +2,7 @@ import type { JobWithMetadata } from 'pg-boss'
 import { db, getPool } from '@/db/client'
 import { heartbeats } from '@/db/schema'
 import { getBoss, type Jobs } from './boss'
+import { runCleanup } from './cleanup'
 import { handleExportJob, handleProcessJob, handlePurgeJob } from './handlers'
 
 const boss = await getBoss()
@@ -24,6 +25,10 @@ await boss.work(
     if (job) await handleExportJob(job.data, job)
   },
 )
+
+await boss.createQueue('cleanup', { retryLimit: 0, policy: 'short' })
+await boss.work('cleanup', { batchSize: 1 }, () => runCleanup(new Date()))
+await boss.schedule('cleanup', '7 * * * *')
 
 async function beat() {
   const at = new Date()

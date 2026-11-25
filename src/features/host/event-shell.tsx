@@ -6,7 +6,8 @@ import type { ReactNode } from 'react'
 import { cx } from '@/features/ui/cx'
 import { Notice } from '@/features/ui/field'
 import type { HostEventDto } from '@/modules/events/events'
-import { formatDate } from './format'
+import { usageLevel } from '@/modules/events/usage'
+import { formatBytes, formatDate } from './format'
 import { useHostEvent } from './queries'
 
 const TABS = [
@@ -21,6 +22,7 @@ const TABS = [
 export function EventShell({ initial, children }: { initial: HostEventDto; children: ReactNode }) {
   const path = usePathname()
   const { data: event = initial } = useHostEvent(initial.id, initial)
+  const level = usageLevel(event)
   const base = `/host/events/${initial.id}`
   return (
     <div className="mx-auto grid max-w-4xl gap-6 px-4 py-8">
@@ -30,6 +32,12 @@ export function EventShell({ initial, children }: { initial: HostEventDto; child
           {formatDate(event.eventDate)}, <a className="font-semibold text-plum underline" href={`/e/${event.code}`}>open the gallery</a>
         </p>
       </div>
+      {level !== 'ok' && (
+        <Notice tone={level === 'full' ? 'danger' : 'info'}>
+          This event is {level === 'full' ? 'full' : 'almost full'}: {event.usedPhotos.toLocaleString('en')} of {event.maxPhotos.toLocaleString('en')} photos,{' '}
+          {formatBytes(event.usedBytes)} of {formatBytes(event.maxBytes)}.
+        </Notice>
+      )}
       {event.frozen && <Notice>Uploads are closed. Guests can look but not add photos, hearts or comments.</Notice>}
       <nav aria-label="Event" className="flex gap-1 overflow-x-auto border-b border-line">
         {TABS.map(([rest, label]) => {

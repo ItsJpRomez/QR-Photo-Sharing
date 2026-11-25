@@ -2,6 +2,7 @@
 
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
 import { useId, useState } from 'react'
 import { Button, buttonClass } from '@/features/ui/button'
 import { ConfirmDialog } from '@/features/ui/dialog'
@@ -263,6 +264,39 @@ function Access({ event }: { event: HostEventDto }) {
   )
 }
 
+function DeleteEvent({ event }: { event: HostEventDto }) {
+  const client = useQueryClient()
+  const router = useRouter()
+  const [asking, setAsking] = useState(false)
+  const remove = useMutation({
+    mutationFn: () => api(eventPath(event.id), { method: 'DELETE' }),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: hk.events })
+      router.push('/host')
+    },
+  })
+  return (
+    <section className="grid justify-items-start gap-4">
+      <h2 className="text-xl font-bold">Delete event</h2>
+      <p>Guests lose access straight away. You can undo it for 7 days, then every photo is deleted for good.</p>
+      {remove.error && <Notice tone="danger">{remove.error.message}</Notice>}
+      <Button variant="danger" onClick={() => setAsking(true)}>
+        Delete event
+      </Button>
+      <ConfirmDialog
+        open={asking}
+        title={`Delete ${event.name}?`}
+        confirm="Delete event"
+        busy={remove.isPending}
+        onClose={() => setAsking(false)}
+        onConfirm={() => remove.mutate(undefined, { onError: () => setAsking(false) })}
+      >
+        <p>Download the photos first if you want to keep them.</p>
+      </ConfirmDialog>
+    </section>
+  )
+}
+
 export function Settings({ id }: { id: string }) {
   const { data: event } = useHostEvent(id)
   if (!event) return <p role="status">Loading settings…</p>
@@ -272,6 +306,7 @@ export function Settings({ id }: { id: string }) {
       <Cover event={event} />
       <Features event={event} />
       <Access event={event} />
+      <DeleteEvent event={event} />
     </div>
   )
 }

@@ -1,0 +1,47 @@
+import { expect } from '@playwright/test'
+import { eventWithGuest, PASSWORD, query, seedPhotos, signUpHost, createEvent, test, tiles } from './helpers'
+
+test('deleting an event can be undone', async ({ page, browser }) => {
+  const { event, guest } = await eventWithGuest(page, browser)
+  await seedPhotos(event.id, { count: 1 })
+  await guest.goto(`/e/${event.code}`)
+  await expect(tiles(guest)).toHaveCount(1)
+  await page.goto(`/host/events/${event.id}/settings`)
+  await page.getByRole('button', { name: 'Delete event' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete event' }).click()
+  await expect(page).toHaveURL(/\/host$/)
+  await expect(guest.getByText("This link doesn't work any more")).toBeVisible({ timeout: 8000 })
+  await page.getByRole('button', { name: 'Undo delete' }).click()
+  await expect(page.getByRole('link', { name: /Ana & Marco/ })).toBeVisible()
+  await guest.reload()
+  await expect(tiles(guest)).toHaveCount(1)
+})
+
+test('the host is told before the limit, and guests at it', async ({ page, browser }) => {
+  const { event, guest } = await eventWithGuest(page, browser)
+  await query('update events set used_photos = 4499 where id = $1', [event.id])
+  await page.goto(`/host/events/${event.id}`)
+  await expect(page.getByText(/almost full/)).toHaveCount(0)
+  await query('update events set used_photos = 4500 where id = $1', [event.id])
+  await page.reload()
+  await expect(page.getByText(/almost full/)).toBeVisible()
+  await query('update events set used_photos = 5000 where id = $1', [event.id])
+  await guest.goto(`/e/${event.code}`)
+  await expect(guest.getByText('This gallery is full.')).toBeVisible()
+  await expect(guest.getByRole('button', { name: 'Add photos' })).toHaveCount(0)
+})
+
+test('an account is deleted with its password', async ({ page }) => {
+  const email = await signUpHost(page)
+  const event = await createEvent(page)
+  await page.goto('/host/account')
+  await page.getByRole('button', { name: 'Delete account' }).click()
+  await page.getByLabel('Password').fill('not my password')
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete account' }).click()
+  await expect(page.getByText(/password isn't right/i)).toBeVisible()
+  await page.getByLabel('Password').fill(PASSWORD)
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete account' }).click()
+  await expect(page).toHaveURL(/localhost:3200\/$/)
+  expect((await page.request.get(`/api/e/${event.code}`)).status()).toBe(404)
+  expect(await query('select 1 from "user" where email = $1', [email])).toHaveLength(0)
+})

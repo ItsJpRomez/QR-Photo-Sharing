@@ -1,4 +1,4 @@
-import { and, count, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gt, isNull, sql } from 'drizzle-orm'
 import { config } from '@/config'
 import { db, withTx, type Executor, type Tx } from '@/db/client'
 import { albums, events, hashtags, type EventRow, type EventSettings } from '@/db/schema'
@@ -55,7 +55,7 @@ async function update(eventId: string, set: Parameters<ReturnType<typeof db.upda
   return row
 }
 
-const announce = (tx: Executor, eventId: string, type: 'event' | 'access' | 'tv' = 'event') =>
+const announce = (tx: Executor, eventId: string, type: 'event' | 'access' | 'tv' | 'deleted' = 'event') =>
   publish(tx, { eventId, type, ids: [], audience: 'everyone' })
 
 /** A change every open screen should show. */
@@ -98,6 +98,32 @@ export async function replaceTvToken(eventId: string): Promise<EventRow> {
   const row = await update(eventId, { tvToken: newToken() })
   await announce(db, eventId, 'tv')
   return row
+}
+
+const UNDO_MS = 7 * 24 * 3600_000
+
+/** Guests lose access at once. The host can undo it for seven days. */
+export function deleteEvent(eventId: string): Promise<void> {
+  return withTx(async (tx) => {
+    await tx
+      .update(events)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
+    await announce(tx, eventId, 'deleted')
+  })
+}
+
+export function restoreEvent(userId: string, eventId: string): Promise<EventRow> {
+  return withTx(async (tx) => {
+    await requireRoomForEvent(tx, userId)
+    const [row] = await tx
+      .update(events)
+      .set({ deletedAt: null })
+      .where(and(eq(events.id, eventId), eq(events.ownerId, userId), gt(events.deletedAt, new Date(Date.now() - UNDO_MS))))
+      .returning()
+    if (!row) throw new AppError('not_found')
+    return row
+  })
 }
 
 export function listEvents(userId: string): Promise<EventRow[]> {
