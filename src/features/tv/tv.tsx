@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { textOn } from '@/lib/color'
 import { api, ApiError } from '@/lib/api'
 import type { Outgoing } from '@/modules/live/hub'
@@ -15,14 +15,55 @@ const RECONNECT_MS = 5000
 
 const qrUrl = (svg: string) => `data:image/svg+xml;base64,${btoa(svg)}`
 
-/** Resolves once a picture is ready to show, so the screen never goes blank. */
-function preload(url: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => resolve(true)
-    img.onerror = () => resolve(false)
-    img.src = url
-  })
+const LOAD_MS = 5000
+const KEEP = 80
+
+/** Pictures this screen has, held so they stay available without a network. */
+class Loaded {
+  private readonly kept = new Map<string, HTMLImageElement>()
+
+  has(id: string): boolean {
+    return this.kept.has(id)
+  }
+
+  /** True once the picture is ready to show, so the screen never goes blank. */
+  load(photo: TvPhoto): Promise<boolean> {
+    const held = this.kept.get(photo.id)
+    if (held) {
+      this.keep(photo.id, held)
+      return Promise.resolve(true)
+    }
+    return new Promise((resolve) => {
+      const img = new Image()
+      const late = setTimeout(() => resolve(false), LOAD_MS)
+      const answer = (ok: boolean) => {
+        clearTimeout(late)
+        if (ok) this.keep(photo.id, img)
+        resolve(ok)
+      }
+      img.onload = () => answer(true)
+      img.onerror = () => answer(false)
+      img.src = photo.displayUrl
+    })
+  }
+
+  /** The address it was loaded from, which the browser still has even if the link has expired since. */
+  src(photo: TvPhoto): string {
+    return this.kept.get(photo.id)?.src ?? photo.displayUrl
+  }
+
+  drop(id: string): void {
+    this.kept.delete(id)
+  }
+
+  private keep(id: string, img: HTMLImageElement): void {
+    this.kept.delete(id)
+    this.kept.set(id, img)
+    for (const oldest of this.kept.keys()) {
+      if (this.kept.size <= KEEP) break
+      this.kept.delete(oldest)
+    }
+  }
 }
 
 function useWakeLock() {
@@ -58,32 +99,43 @@ export function Tv({ token, initial }: { token: string; initial: TvDto }) {
 
   useEffect(() => dispatch({ type: 'replace', photos: view.photos }), [view.photos])
 
-  // Move on every few seconds, but only to a picture that has loaded.
+  const [pictures] = useState(() => new Loaded())
   const state = useRef(slides)
   useEffect(() => {
     state.current = slides
   }, [slides])
-  useEffect(() => {
-    let stopped = false
-    let failures = 0
-    const timer = setInterval(async () => {
-      const [next] = upcoming(state.current, 1)
-      if (!next || stopped) return
-      if (await preload(next.displayUrl)) {
-        failures = 0
-        if (!stopped) dispatch({ type: 'tick' })
-      } else {
-        // Skip it, unless nothing loads: then keep what's on screen. Either way, ask for new links.
-        failures++
-        void client.invalidateQueries({ queryKey: ['tv', token] })
-        if (!stopped && failures < state.current.queue.length) dispatch({ type: 'tick' })
-      }
-    }, view.seconds * 1000)
-    return () => {
-      stopped = true
-      clearInterval(timer)
+
+  // Moves on only to a picture that has loaded. When the next one won't, one that
+  // is already here is shown instead; with none, what's on screen stays.
+  const moving = useRef(false)
+  const advance = useCallback(async () => {
+    if (moving.current) return
+    moving.current = true
+    try {
+      const { queue, fresh } = state.current
+      const line = upcoming(state.current, queue.length + fresh.length)
+      const [next] = line
+      if (!next) return
+      if (await pictures.load(next)) return dispatch({ type: 'show', id: next.id })
+      void client.invalidateQueries({ queryKey: ['tv', token] }) // its link may have run out
+      const here = line.find((p) => pictures.has(p.id))
+      if (here) return dispatch({ type: 'show', id: here.id })
+      for (const p of line.slice(1, 6)) if (await pictures.load(p)) return dispatch({ type: 'show', id: p.id })
+    } finally {
+      moving.current = false
     }
-  }, [view.seconds, client, token])
+  }, [client, pictures, token])
+
+  useEffect(() => {
+    const timer = setInterval(() => void advance(), view.seconds * 1000)
+    return () => clearInterval(timer)
+  }, [advance, view.seconds])
+
+  // A few are fetched ahead while there is a network.
+  useEffect(() => {
+    const on = current(slides)
+    for (const p of [...(on ? [on] : []), ...upcoming(slides, 3)]) void pictures.load(p)
+  }, [slides, pictures])
 
   useEffect(() => {
     let source: EventSource | undefined
@@ -95,6 +147,7 @@ export function Tv({ token, initial }: { token: string; initial: TvDto }) {
       if (m.type !== 'photos') return m.type === 'event' || m.type === 'tv' || m.type === 'deleted' || m.type === 'access' ? refresh() : undefined
       try {
         const { photos, gone } = await api<{ photos: TvPhoto[]; gone: string[] }>(`${path}?ids=${m.ids.join(',')}`)
+        for (const id of gone) pictures.drop(id)
         dispatch({ type: 'remove', ids: gone })
         dispatch({ type: 'add', photos: photos.toReversed() })
       } catch {
@@ -125,7 +178,7 @@ export function Tv({ token, initial }: { token: string; initial: TvDto }) {
       clearInterval(poll)
       clearTimeout(retry)
     }
-  }, [client, path, token])
+  }, [client, path, pictures, token])
 
   if (ended) {
     return (
@@ -138,7 +191,7 @@ export function Tv({ token, initial }: { token: string; initial: TvDto }) {
   return (
     <main className="fixed inset-0 cursor-none overflow-hidden bg-black text-white">
       <h1 className="sr-only">{view.name}</h1>
-      <Slide key={photo.id} photo={photo} />
+      <Slide key={photo.id} id={photo.id} src={pictures.src(photo)} onBroken={advance} />
       {(photo.uploader || photo.album) && (
         <p className="absolute bottom-[3vh] left-[3vh] flex max-w-[60vw] gap-[2vh] rounded-control bg-black/70 px-[2vh] py-[1vh] text-[3.2vh]">
           {photo.uploader && <bdi className="truncate font-bold">{photo.uploader}</bdi>}
@@ -160,19 +213,10 @@ export function Tv({ token, initial }: { token: string; initial: TvDto }) {
   )
 }
 
-function Slide({ photo }: { photo: TvPhoto }) {
-  const [url, setUrl] = useState(photo.displayUrl)
-  // A new link to the same picture is swapped in only if the old one stopped working.
-  return (
-    <img
-      data-testid="slide"
-      data-photo={photo.id}
-      src={url}
-      alt=""
-      className="tv-slide absolute inset-0 size-full object-contain"
-      onError={() => setTimeout(() => setUrl(photo.displayUrl), 1000)}
-    />
-  )
+function Slide({ id, src, onBroken }: { id: string; src: string; onBroken: () => void }) {
+  // Keeps the address it started with: a newer link to the same picture would only flicker.
+  const [first] = useState(src)
+  return <img data-testid="slide" data-photo={id} src={first} alt="" className="tv-slide absolute inset-0 size-full object-contain" onError={onBroken} />
 }
 
 function Invitation({ view }: { view: TvDto }) {

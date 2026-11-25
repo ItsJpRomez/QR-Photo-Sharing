@@ -176,6 +176,31 @@ test('expired image links are replaced, without endless retries', async ({ page,
   for (const n of tries.values()) expect(n).toBeLessThanOrEqual(3)
 })
 
+test('a photo that could not load appears once the signal is back', async ({ page, browser }) => {
+  const { event, guest } = await eventWithGuest(page, browser)
+  await seedPhotos(event.id, { count: 2 })
+  let down = true
+  await guest.route('**/api/storage/**/thumb/**', (r) => (down ? r.abort() : r.continue()))
+  await guest.goto(`/e/${event.code}`)
+  await expect(guest.getByText("Couldn't load")).toHaveCount(2, { timeout: 10_000 })
+  down = false
+  await guest.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect
+    .poll(() => tiles(guest).locator('img').evaluateAll((els) => els.filter((i) => (i as HTMLImageElement).naturalWidth > 0).length), { timeout: 8000 })
+    .toBe(2)
+})
+
+test('it also recovers by itself when the phone never noticed it was offline', async ({ page, browser }) => {
+  const { event, guest } = await eventWithGuest(page, browser)
+  await seedPhotos(event.id, { count: 1 })
+  let down = true
+  await guest.route('**/api/storage/**/thumb/**', (r) => (down ? r.abort() : r.continue()))
+  await guest.goto(`/e/${event.code}`)
+  await expect(guest.getByText("Couldn't load")).toBeVisible({ timeout: 10_000 })
+  down = false
+  await expect.poll(() => tiles(guest).locator('img').evaluateAll((els) => els.filter((i) => (i as HTMLImageElement).naturalWidth > 0).length), { timeout: 30_000 }).toBe(1)
+})
+
 test('no accessibility problems on the gallery', async ({ page, browser }) => {
   const { event, guest } = await eventWithGuest(page, browser, { albums: ['Dance floor'] })
   await seedPhotos(event.id, { count: 4, tag: 'Fun' })

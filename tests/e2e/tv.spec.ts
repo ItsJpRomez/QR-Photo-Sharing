@@ -76,6 +76,26 @@ test('without a network it keeps going through the photos it has', async ({ page
   expect(await loaded(tv)).toBeGreaterThan(0)
 })
 
+test('when the network drops before every photo has loaded, only loaded ones are shown', async ({ page, browser }) => {
+  const { event, guest: tv } = await eventWithGuest(page, browser)
+  await hostApi(page, 'PATCH', `/api/host/events/${event.id}/settings`, { tv: { seconds: 3 } })
+  const ids = await seedPhotos(event.id, { count: 8 })
+  const have = new Set(ids.slice(0, 2))
+  // Everything but the first two never arrives.
+  await tv.route('**/api/storage/**/display/**', (r) => ([...have].some((id) => r.request().url().includes(id)) ? r.continue() : r.abort()))
+  await tv.setViewportSize({ width: 1280, height: 720 })
+  await tv.goto(event.tvUrl)
+  await expect.poll(() => loaded(tv)).toBeGreaterThan(0)
+  const seen = new Set<string | null>()
+  for (let i = 0; i < 24; i++) {
+    const id = await shownId(tv)
+    seen.add(id)
+    expect(have.has(id!), `showed ${id}`).toBe(true)
+    await tv.waitForTimeout(500)
+  }
+  expect(seen.size).toBe(2)
+})
+
 test('left on for hours, it asks for new image links', async ({ page, browser }) => {
   const { event, guest: tv } = await eventWithGuest(page, browser)
   await seedPhotos(event.id, { count: 2 })

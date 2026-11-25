@@ -10,7 +10,7 @@ You need a server that stays on, Postgres, Cloudflare R2, an email service and a
 | worker | `npm run start:worker` | 1 |
 | migrations | `npm run db:migrate` | once per release, before starting |
 
-Both use the same code, the same settings and the same database. Start in the project folder, because HEIC decoding and sign fonts are read from there. A 2 GB, 2-core server is a sensible start: the worker decodes large photos, two at a time.
+Both use the same code, the same settings and the same database. Start in the project folder, because HEIC decoding and sign fonts are read from there. Start with 4 GB of memory and 2 cores for both together, or 1 GB for web and 3 GB for the worker. Opening one very large HEIC photo takes over 1 GB for a moment, so the worker opens them one at a time and web never does.
 
 On Railway or Fly, make two services from the `Dockerfile` and set the command for each. On a VPS, run both with systemd or Docker Compose behind Caddy or nginx.
 
@@ -27,7 +27,7 @@ Copy `.env.example`. In production you need:
 | `DATABASE_URL` | A **direct** connection. Live updates use `LISTEN`, which doesn't work through a transaction pooler such as PgBouncer. |
 | `STORAGE_DRIVER=s3` and `S3_*` | See below. Disk storage refuses to start in production. |
 | `SMTP_URL`, `MAIL_FROM` | Hosts can't verify their address without email. |
-| `TRUSTED_PROXY_HOPS` | How many proxies add to `X-Forwarded-For`. Usually `1`; `2` behind Cloudflare and another proxy. Too low makes every guest share one PIN limit; too high lets someone fake their address. |
+| `TRUSTED_PROXY_HOPS` | Required. How many proxies add to `X-Forwarded-For`. Usually `1`; `2` behind Cloudflare and another proxy. Too low makes every guest share one PIN limit; too high lets someone fake their address. It also decides the address used for sign-in limits. |
 | `REPORT_EMAIL` | Shown on the report page. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Redirect address: `APP_URL/api/auth/callback/google`. |
 

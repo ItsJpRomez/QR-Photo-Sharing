@@ -142,7 +142,7 @@ Clearing cookies, or moving from an in-app browser to Safari, makes a new guest.
  reserved -> uploaded -> processing -+-> pending (approval on) --> live <--> hidden
      |                      |        +-> live (approval off)
      v                      v
-  expired (24 h)       failed / duplicate          any -> deleted
+  expired (1 h)        failed / duplicate          any -> deleted
 ```
 
 - Guests see `live` photos. An uploader also sees their own `processing` and `pending` ones, with a badge. A hidden photo disappears for its uploader too. The host sees everything except expired and deleted.
@@ -166,7 +166,7 @@ Event covers use the same checks and resizing, but aren't gallery photos, aren't
 
 **Time taken** comes from the photo's EXIF. EXIF usually lacks a time zone, so the event's time zone is assumed. If missing, or over a day in the future, the upload time is used.
 
-**Guest downloads** are a full-resolution JPEG with location and other metadata removed, made on first request and cached **[call]**. Only the host gets untouched originals, which may contain GPS. The upload screen states this in one line.
+**Guest downloads** are a full-resolution JPEG with location and other metadata removed, made by the worker on first request and cached **[call]**. Only the host gets untouched originals, which may contain GPS. The upload screen states this in one line.
 
 ### Duplicates
 
@@ -182,6 +182,8 @@ Byte-identical photos in the same event are stored once.
 Per event: 5,000 photos and 25 GB of originals. Per host: 10 events. They live in configuration, with a per-event override column, ready for paid plans. Host sees a banner at 90%; at 100% guests see "This gallery is full".
 
 Per guest: 500 photos per event, 60 upload reservations a minute, 10 comments a minute.
+
+**Unfinished uploads (added after review):** a reservation nobody finishes is released after 1 hour, not 24, because upload links last 15 minutes and a returning phone reserves again by itself. A guest can hold 10 at a time, and one network address 600 or 4 GB, so nobody can fill an event without sending photos. Near the limit, the host sees them and can clear them. Only a keyed hash of the address is kept, and only while unfinished.
 
 ### Freeze
 
@@ -265,7 +267,7 @@ New photos jump the line, otherwise it cycles through live ones. The host sets s
 
 ## 10. Export and deletion
 
-- **Export:** one click starts a job, with live progress, then a download link valid for 7 days and an email. Photos are stored uncompressed (they already are compressed) and written straight to storage, so size isn't limited by server disk. Live photos are included; hidden and waiting ones are optional. Names: `Dance Floor/2026-06-12_184501_Ana_0001.jpg`, made safe for Windows and Mac.
+- **Export:** one click starts a job, with live progress, then a download available for 7 days and an email. Each link lasts a day, so a slow download can resume. Photos are stored uncompressed (they already are compressed) and written straight to storage, so size isn't limited by server disk. Live photos are included; hidden and waiting ones are optional. Names: `Dance Floor/2026-06-12_184501_Ana_0001.jpg`, made safe for Windows and Mac.
 - It exports what existed when clicked. A failed photo is listed in the archive's `_errors.txt` rather than failing the whole export. One export per event runs at a time.
 - **Delete event:** guests lose access at once; undo for 7 days, then everything is purged. **Delete account** does the same for all the host's events. Nothing else expires on its own.
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { thumbHashToDataURL } from 'thumbhash'
 import { cx } from '@/features/ui/cx'
 import type { PhotoDto } from '@/modules/photos/query'
@@ -23,18 +23,37 @@ function placeholder(hash: string | null): string | undefined {
   }
 }
 
+const GIVE_UP = 2
 const RETRY_MS = 1200
+/** After giving up for now. The phone doesn't always notice the signal coming back. */
+const LATER_MS = 15_000
 
 export function PhotoImage({ photo, size, onStale, className, fit = 'cover' }: Props) {
   const url = size === 'thumb' ? photo.thumbUrl : photo.displayUrl
-  const [failure, setFailure] = useState({ id: photo.id, tries: 0 })
-  const tries = failure.id === photo.id ? failure.tries : 0
+  // Counted for this very link, so a new one starts afresh.
+  const [failure, setFailure] = useState({ url, tries: 0 })
+  const tries = failure.url === url ? failure.tries : 0
+  const gaveUp = tries >= GIVE_UP
   const background = useMemo(() => placeholder(photo.thumbhash), [photo.thumbhash])
+
+  useEffect(() => {
+    if (!gaveUp) return
+    const again = () => {
+      onStale(photo.id)
+      setFailure({ url, tries: 1 })
+    }
+    const timer = setTimeout(again, LATER_MS)
+    window.addEventListener('online', again)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('online', again)
+    }
+  }, [gaveUp, onStale, photo.id, url])
 
   if (!url) {
     return <span className={cx('grid place-items-center bg-plum-wash p-2 text-center text-sm text-ink-soft', className)}>Getting it ready…</span>
   }
-  if (tries >= 2) {
+  if (gaveUp) {
     return <span className={cx('grid place-items-center bg-plum-wash p-2 text-center text-sm text-ink-soft', className)}>Couldn&apos;t load</span>
   }
   return (
@@ -49,7 +68,7 @@ export function PhotoImage({ photo, size, onStale, className, fit = 'cover' }: P
       onError={() => {
         if (tries === 0) onStale(photo.id)
         // Give the new link a moment to arrive, then try once more.
-        setTimeout(() => setFailure({ id: photo.id, tries: tries + 1 }), tries === 0 ? RETRY_MS : 0)
+        setTimeout(() => setFailure({ url, tries: tries + 1 }), tries === 0 ? RETRY_MS : 0)
       }}
     />
   )

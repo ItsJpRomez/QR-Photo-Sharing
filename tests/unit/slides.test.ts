@@ -61,6 +61,23 @@ test('a full refresh keeps the place, takes away what is gone and lines up what 
   expect(current(s)).toMatchObject({ id: 'b', displayUrl: 'fresh' })
   expect(play(s, 4)).toEqual(['n', 'c', 'b', 'n'])
 })
+describe('going straight to one that has loaded', () => {
+  const show = (s: Slides, id: string) => reduce(s, { type: 'show', id })
+  test('later in the round: the ones passed over come back next time', () => {
+    const s = show(start('a', 'b', 'c', 'd'), 'c')
+    expect(current(s)?.id).toBe('c')
+    expect(play(s, 4)).toEqual(['d', 'a', 'b', 'c'])
+  })
+  test('a fresh one joins the round; fresh ones passed over still wait', () => {
+    let s = reduce(start('a', 'b'), { type: 'add', photos: [p('x'), p('y')] })
+    s = show(s, 'y')
+    expect(current(s)?.id).toBe('y')
+    expect(s.fresh.map((f) => f.id)).toEqual(['x'])
+    expect(play(s, 3)).toEqual(['x', 'b', 'a'])
+  })
+  test('one that is gone changes nothing', () => expect(current(show(start('a', 'b'), 'zzz'))?.id).toBe('a'))
+})
+
 test('at most 200 are kept, letting go of the oldest', () => {
   let s = start(...Array.from({ length: 200 }, (_, i) => `p${i}`))
   for (let i = 0; i < 50; i++) s = reduce(reduce(s, { type: 'add', photos: [p(`n${i}`)] }), { type: 'tick' })

@@ -10,6 +10,8 @@ export type Slides = {
 
 export type SlideAction =
   | { type: 'tick' }
+  /** Go straight to one, passing over those in between for now. */
+  | { type: 'show'; id: string }
   | { type: 'add'; photos: TvPhoto[] }
   | { type: 'remove'; ids: string[] }
   | { type: 'replace'; photos: TvPhoto[] }
@@ -38,6 +40,13 @@ function tick(s: Slides): Slides {
     if (drop < index) index--
   }
   return { queue, fresh, index }
+}
+
+function show(s: Slides, id: string): Slides {
+  const waiting = s.fresh.find((p) => p.id === id)
+  if (waiting) return tick({ ...s, fresh: [waiting, ...s.fresh.filter((p) => p.id !== id)] })
+  const index = s.queue.findIndex((p) => p.id === id)
+  return index < 0 ? s : { ...s, index }
 }
 
 function update(s: Slides, photos: TvPhoto[]): Slides {
@@ -71,6 +80,8 @@ export function slidesReducer(s: Slides, action: SlideAction): Slides {
   switch (action.type) {
     case 'tick':
       return tick(s)
+    case 'show':
+      return show(s, action.id)
     case 'add':
       return add(s, action.photos)
     case 'remove':
