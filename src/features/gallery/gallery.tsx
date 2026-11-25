@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getQueue } from '@/features/upload-queue/use-queue'
 import { Viewer } from '@/features/photo/viewer'
+import { plural } from '@/features/host/format'
 import { Button } from '@/features/ui/button'
 import { Notice } from '@/features/ui/field'
 import { textOn } from '@/lib/color'
@@ -13,6 +14,7 @@ import { PhotoGrid } from './photo-grid'
 import { usePhoto, usePhotos, useRefreshPhotos, useTrending } from './queries'
 import { setAddress, useAddress } from './use-address'
 import { UploadBar } from './upload-bar'
+import { useLive } from './use-live'
 import { Views } from './views'
 
 const EMPTY: Record<string, string> = {
@@ -33,6 +35,7 @@ export function Gallery({ event }: { event: OpenEventDto }) {
   const { data: trending = [] } = useTrending(code)
   const photos = usePhotos(code, view, order)
   const refresh = useRefreshPhotos(code)
+  const live = useLive({ event, view, order })
   const [adding, setAdding] = useState(false)
   const list = useMemo(() => photos.data?.pages.flatMap((p) => p.items) ?? [], [photos.data])
   const at = openId ? list.findIndex((p) => p.id === openId) : -1
@@ -106,13 +109,20 @@ export function Gallery({ event }: { event: OpenEventDto }) {
         {photos.data && list.length === 0 && (
           <p className="px-6 py-16 text-center font-display text-2xl font-bold">{emptyText(view, event.canUpload)}</p>
         )}
-        <PhotoGrid photos={list} hasMore={hasNextPage} loadMore={loadMore} onOpen={openPhoto} onStale={refresh} />
+        <PhotoGrid photos={list} hasMore={hasNextPage} loadMore={loadMore} onOpen={openPhoto} onStale={refresh} arrived={live.arrived} />
         {isFetchingNextPage && (
           <p role="status" className="p-4 text-center text-ink-soft">
             Loading more…
           </p>
         )}
       </main>
+      {live.held > 0 && (
+        <div className="pointer-events-none fixed inset-x-0 top-20 z-20 grid justify-items-center">
+          <button type="button" className="pointer-events-auto min-h-11 rounded-full bg-flash px-6 font-bold text-ink" onClick={live.showHeld}>
+            {plural(live.held, 'new photo')}
+          </button>
+        </div>
+      )}
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 grid justify-items-center gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <UploadBar eventId={event.id} code={code} />
         {event.canUpload && (

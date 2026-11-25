@@ -2,8 +2,11 @@ import { and, asc, count, eq, sql } from 'drizzle-orm'
 import { db, withTx, type Executor, type Tx } from '@/db/client'
 import { albums, type AlbumRow } from '@/db/schema'
 import { AppError } from '@/lib/errors'
+import { publish } from '@/modules/live/publish'
 
 export const MAX_ALBUMS = 30
+
+const announce = (tx: Executor, eventId: string) => publish(tx, { eventId, type: 'event', ids: [], audience: 'everyone' })
 
 export function listAlbums(eventId: string): Promise<AlbumRow[]> {
   return db.select().from(albums).where(eq(albums.eventId, eventId)).orderBy(asc(albums.position), asc(albums.createdAt))
@@ -23,6 +26,7 @@ export function createAlbum(eventId: string, name: string): Promise<AlbumRow> {
       .where(eq(albums.eventId, eventId))
     if (n >= MAX_ALBUMS) throw new AppError('bad_input', `An event can have up to ${MAX_ALBUMS} albums.`)
     const [row] = await tx.insert(albums).values({ eventId, name, position: last + 1 }).returning()
+    await announce(tx, eventId)
     return row!
   })
 }
@@ -32,12 +36,14 @@ const isAlbum = (eventId: string, id: string) => and(eq(albums.eventId, eventId)
 export async function renameAlbum(eventId: string, id: string, name: string): Promise<AlbumRow> {
   const [row] = await db.update(albums).set({ name }).where(isAlbum(eventId, id)).returning()
   if (!row) throw new AppError('not_found')
+  await announce(db, eventId)
   return row
 }
 
 export async function deleteAlbum(eventId: string, id: string): Promise<void> {
   const gone = await db.delete(albums).where(isAlbum(eventId, id)).returning({ id: albums.id })
   if (!gone.length) throw new AppError('not_found')
+  await announce(db, eventId)
 }
 
 export function reorderAlbums(eventId: string, ids: string[]): Promise<void> {
@@ -48,6 +54,7 @@ export function reorderAlbums(eventId: string, ids: string[]): Promise<void> {
     if (wanted.size !== ids.length || ids.length !== existing.length || !existing.every((a) => wanted.has(a.id)))
       throw new AppError('bad_input', 'The albums changed. Reload the page and try again.')
     for (const [position, id] of ids.entries()) await tx.update(albums).set({ position }).where(isAlbum(eventId, id))
+    await announce(tx, eventId)
   })
 }
 

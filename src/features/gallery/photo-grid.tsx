@@ -11,6 +11,8 @@ type Props = {
   loadMore: () => void
   onOpen: (id: string) => void
   onStale: (id: string) => void
+  /** Just came in. */
+  arrived?: ReadonlySet<string>
 }
 
 const GAP = 3
@@ -27,7 +29,7 @@ export function tileLabel(p: PhotoDto): string {
   return `Photo by ${p.uploader}${badge ? `, ${badge.toLowerCase()}` : ''}`
 }
 
-export function PhotoGrid({ photos, hasMore, loadMore, onOpen, onStale }: Props) {
+export function PhotoGrid({ photos, hasMore, loadMore, onOpen, onStale, arrived }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ width: 0, top: 0 })
 
@@ -88,6 +90,7 @@ export function PhotoGrid({ photos, hasMore, loadMore, onOpen, onStale }: Props)
               className="relative block overflow-hidden bg-line focus-visible:z-10"
             >
               <PhotoImage photo={p} size="thumb" onStale={onStale} className="absolute inset-0 size-full" />
+              {arrived?.has(p.id) && <span aria-hidden className="camera-flash absolute inset-0" />}
               {BADGE[p.status] && (
                 <span className="absolute inset-x-0 bottom-0 bg-ink/85 px-1 py-0.5 text-xs font-semibold text-white">{BADGE[p.status]}</span>
               )}

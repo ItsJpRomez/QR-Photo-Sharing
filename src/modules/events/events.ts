@@ -1,9 +1,10 @@
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm'
 import { config } from '@/config'
-import { db, withTx, type Tx } from '@/db/client'
+import { db, withTx, type Executor, type Tx } from '@/db/client'
 import { albums, events, hashtags, type EventRow, type EventSettings } from '@/db/schema'
 import { AppError } from '@/lib/errors'
 import { newEventCode, newToken } from '@/lib/ids'
+import { publish } from '@/modules/live/publish'
 import { eventInput, type EventInput, type EventPatch, type SettingsPatch } from './input'
 import { ownAlbumId } from './albums'
 import { setPin } from './pin'
@@ -54,9 +55,19 @@ async function update(eventId: string, set: Parameters<ReturnType<typeof db.upda
   return row
 }
 
+const announce = (tx: Executor, eventId: string, type: 'event' | 'access' = 'event') =>
+  publish(tx, { eventId, type, ids: [], audience: 'everyone' })
+
+/** A change every open screen should show. */
+async function updateAndAnnounce(eventId: string, set: Parameters<typeof update>[1]): Promise<EventRow> {
+  const row = await update(eventId, set)
+  await announce(db, eventId)
+  return row
+}
+
 export function updateEvent(eventId: string, patch: EventPatch): Promise<EventRow> {
   if (!Object.keys(patch).length) throw new AppError('bad_input')
-  return update(eventId, patch)
+  return updateAndAnnounce(eventId, patch)
 }
 
 export function updateSettings(eventId: string, patch: SettingsPatch): Promise<EventRow> {
@@ -67,16 +78,22 @@ export function updateSettings(eventId: string, patch: SettingsPatch): Promise<E
     const settings: EventSettings = { ...event.settings, ...rest, tv: { ...event.settings.tv, ...tv } }
     if (tv?.albumId && !(await ownAlbumId(tx, eventId, tv.albumId))) throw new AppError('bad_input')
     const [row] = await tx.update(events).set({ settings }).where(eq(events.id, eventId)).returning()
+    await announce(tx, eventId)
     return row!
   })
 }
 
 /** Freezing again keeps the original time, so the grace period can't be stretched. */
 export function setFrozen(eventId: string, frozen: boolean): Promise<EventRow> {
-  return update(eventId, { frozenAt: frozen ? sql`coalesce(${events.frozenAt}, now())` : null })
+  return updateAndAnnounce(eventId, { frozenAt: frozen ? sql`coalesce(${events.frozenAt}, now())` : null })
 }
 
-export const replaceCode = (eventId: string) => update(eventId, { code: newEventCode() })
+export async function replaceCode(eventId: string): Promise<EventRow> {
+  const row = await update(eventId, { code: newEventCode() })
+  await announce(db, eventId, 'access')
+  return row
+}
+
 export const replaceTvToken = (eventId: string) => update(eventId, { tvToken: newToken() })
 
 export function listEvents(userId: string): Promise<EventRow[]> {

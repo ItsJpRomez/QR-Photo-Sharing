@@ -6,6 +6,7 @@ import { sha256Hex } from '@/lib/ids'
 import { inspect } from '@/modules/imaging/inspect'
 import { render } from '@/modules/imaging/render'
 import { resolveTakenAt } from '@/modules/imaging/taken-at'
+import { publish } from '@/modules/live/publish'
 import { keys, storage } from '@/modules/storage'
 import { releaseQuota, transition } from './lifecycle'
 
@@ -30,6 +31,7 @@ export async function failPhoto(photoId: string, failureCode: string): Promise<v
     if (!photo || (photo.status !== 'processing' && photo.status !== 'uploaded')) return null
     await transition(tx, photoId, [photo.status], 'failed', { failureCode })
     await releaseQuota(tx, photo)
+    await publish(tx, { eventId: photo.eventId, type: 'photos', ids: [photoId], audience: [photo.participantId] })
     return photo
   })
   // When the fault is ours the sent file stays until cleanup, so nothing is lost by a retry.
@@ -94,11 +96,13 @@ export async function processPhoto(photoId: string): Promise<void> {
       await tx.insert(photoContributors).values({ photoId: kept.id, participantId: now.participantId }).onConflictDoNothing()
       await transition(tx, photoId, ['processing'], 'duplicate', { duplicateOf: kept.id, sha256 })
       await releaseQuota(tx, now)
+      await publish(tx, { eventId: event.id, type: 'photos', ids: [photoId, kept.id], audience: [now.participantId] })
       return 'duplicate'
     }
     if (removedByHost) {
       await transition(tx, photoId, ['processing'], 'failed', { failureCode: 'removed_by_host' })
       await releaseQuota(tx, now)
+      await publish(tx, { eventId: event.id, type: 'photos', ids: [photoId], audience: [now.participantId] })
       return 'removed_by_host'
     }
 
@@ -114,6 +118,7 @@ export async function processPhoto(photoId: string): Promise<void> {
       takenAt: resolveTakenAt({ ...info, timeZone: event.timeZone, uploadedAt: now.uploadedAt ?? new Date() }),
       publishedAt: waits ? null : new Date(),
     })
+    await publish(tx, { eventId: event.id, type: 'photos', ids: [photoId], audience: waits ? [now.participantId] : 'everyone' })
     return 'published'
   })
 

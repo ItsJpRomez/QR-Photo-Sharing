@@ -5,6 +5,7 @@ import { events, type EventRow } from '@/db/schema'
 import { AppError } from '@/lib/errors'
 import { inspect } from '@/modules/imaging/inspect'
 import { render } from '@/modules/imaging/render'
+import { publish } from '@/modules/live/publish'
 import { uploadType } from '@/modules/photos/uploads'
 import { keys, storage } from '@/modules/storage'
 
@@ -34,6 +35,7 @@ async function replaceCover(event: EventRow, image: Buffer | null): Promise<Even
   const key = image ? keys.cover(event.id, crypto.randomUUID()) : null
   if (key && image) await storage.put(key, image, 'image/webp')
   const [row] = await db.update(events).set({ coverKey: key }).where(eq(events.id, event.id)).returning()
+  await publish(db, { eventId: event.id, type: 'event', ids: [], audience: 'everyone' })
   if (event.coverKey) await storage.delete([event.coverKey])
   return row!
 }

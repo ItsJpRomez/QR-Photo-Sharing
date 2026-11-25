@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db, withTx, type Executor } from '@/db/client'
 import { hashtags, photoHashtags, photos } from '@/db/schema'
 import { AppError } from '@/lib/errors'
+import { publish } from '@/modules/live/publish'
 import { parseTags, type ParsedTag } from './tag-text'
 
 export type TagRow = typeof hashtags.$inferSelect
@@ -40,6 +41,7 @@ export async function suggestTag(eventId: string, text: string): Promise<TagRow>
     .values({ eventId, ...tag, suggested: true })
     .onConflictDoUpdate({ target: [hashtags.eventId, hashtags.norm], set: { suggested: true, blocked: false, display: tag.display } })
     .returning()
+  await publish(db, { eventId, type: 'event', ids: [], audience: 'everyone' })
   return row!
 }
 
@@ -48,6 +50,7 @@ const isTag = (eventId: string, id: string) => and(eq(hashtags.eventId, eventId)
 export async function unsuggestTag(eventId: string, id: string): Promise<void> {
   const rows = await db.update(hashtags).set({ suggested: false }).where(isTag(eventId, id)).returning({ id: hashtags.id })
   if (!rows.length) throw new AppError('not_found')
+  await publish(db, { eventId, type: 'event', ids: [], audience: 'everyone' })
 }
 
 /** Takes a tag off every photo and stops it being used again in this event. */
@@ -59,7 +62,9 @@ export function blockTag(eventId: string, id: string): Promise<void> {
       .where(isTag(eventId, id))
       .returning({ id: hashtags.id })
     if (!rows.length) throw new AppError('not_found')
-    await tx.delete(photoHashtags).where(eq(photoHashtags.hashtagId, id))
+    const had = await tx.delete(photoHashtags).where(eq(photoHashtags.hashtagId, id)).returning({ photoId: photoHashtags.photoId })
+    if (had.length) await publish(tx, { eventId, type: 'photos', ids: had.map((p) => p.photoId), audience: 'everyone' })
+    await publish(tx, { eventId, type: 'event', ids: [], audience: 'everyone' })
   })
 }
 

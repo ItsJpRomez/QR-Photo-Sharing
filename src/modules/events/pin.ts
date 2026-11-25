@@ -6,6 +6,7 @@ import { AppError } from '@/lib/errors'
 import { hmacHex, safeEqual } from '@/lib/ids'
 import { sendMail } from '@/lib/mail'
 import { countHit, hitLimit, refundHit } from '@/lib/rate-limit'
+import { publish } from '@/modules/live/publish'
 import { guestParticipant } from '@/modules/access/viewer'
 
 export const PIN_FORMAT = /^[0-9]{4}$/
@@ -33,6 +34,7 @@ export async function setPin(tx: Executor, eventId: string, pin: string | null):
       settings: sql`jsonb_set(${events.settings}, '{tv,showPin}', 'false')`,
     })
     .where(eq(events.id, eventId))
+  await publish(tx, { eventId, type: 'access', ids: [], audience: 'everyone' })
 }
 
 async function pauseEvent(event: EventRow): Promise<void> {

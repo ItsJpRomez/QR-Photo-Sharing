@@ -11,6 +11,7 @@ import { requireCan, type Viewer } from '@/modules/access/can'
 import { ownAlbumId } from '@/modules/events/albums'
 import { attachTags } from '@/modules/events/tags'
 import { parseTags } from '@/modules/events/tag-text'
+import { publish } from '@/modules/live/publish'
 import { keys, storage } from '@/modules/storage'
 import { COUNTED, releaseQuota, transition } from './lifecycle'
 
@@ -213,8 +214,10 @@ export async function completeUpload(viewer: Unlocked, event: EventRow, photoId:
   const file = await storage.head(keys.incoming(event.id, photo.id))
   if (file?.size !== photo.sizeBytes) throw new AppError('bad_input', "The photo didn't arrive in full. Please try again.")
   await withTx(async (tx) => {
-    if (await transition(tx, photo.id, ['reserved'], 'uploaded', { uploadedAt: now }))
+    if (await transition(tx, photo.id, ['reserved'], 'uploaded', { uploadedAt: now })) {
       await enqueue(tx, 'photo.process', { photoId: photo.id })
+      await publish(tx, { eventId: event.id, type: 'photos', ids: [photo.id], audience: [viewer.participantId] })
+    }
   })
   return describe(viewer, await ownPhoto(viewer, event, photoId))
 }
