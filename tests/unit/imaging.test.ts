@@ -112,6 +112,49 @@ describe('render', () => {
   })
 })
 
+describe('whose fault it is', () => {
+  const cut = (name: string, keep: number) => load(name).subarray(0, keep)
+  test.each([
+    ['plain.png', 3000],
+    ['plain.webp', 400],
+    ['plain.avif', 300],
+    ['truncated.jpg', 30_000],
+  ])('a damaged %s is the photo’s fault', async (name, keep) => {
+    const buf = cut(name, keep)
+    expect(await code(inspect(buf).then((i) => render(buf, i.format)))).toBe('bad_type')
+  })
+  test('a HEIC with damaged insides is the photo’s fault', async () => {
+    const buf = Buffer.from(load('rotated-gps.heic'))
+    buf.fill(0xff, 9000, 13_000)
+    expect(['bad_type', 'ok']).toContain(await code(render(buf, 'heic')))
+  })
+  test('a missing decoder is ours: the photo is kept and tried again', async () => {
+    const real = process.cwd
+    process.cwd = () => '/nonexistent'
+    try {
+      const err = await render(load('p3.heic'), 'heic').catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(Error)
+      expect((err as { code?: string }).code).not.toBe('bad_type')
+    } finally {
+      process.cwd = real
+    }
+  })
+  test.each(['out of memory', 'ENOMEM: not enough memory', 'EMFILE: too many open files', 'Something nobody expected'])('%j is ours', async (message) => {
+    const { reading } = await import('@/modules/imaging/render')
+    const err = await reading(() => Promise.reject(new Error(message))).catch((e: unknown) => e)
+    expect((err as { code?: string }).code).toBeUndefined()
+    expect((err as Error).message).toBe(message)
+  })
+  test('HEIC photos are opened one at a time', async () => {
+    const { heicRunning, heicToPng } = await import('@/modules/imaging/heic')
+    let most = 0
+    const watch = setInterval(() => (most = Math.max(most, heicRunning())), 5)
+    await Promise.all(Array.from({ length: 3 }, () => heicToPng(load('rotated-gps.heic'))))
+    clearInterval(watch)
+    expect(most).toBe(1)
+  })
+})
+
 describe('resolveTakenAt', () => {
   const uploadedAt = new Date('2026-06-12T11:00:00Z')
   const at = (takenLocal: string | null, offset: string | null = null, timeZone = 'Asia/Manila') =>

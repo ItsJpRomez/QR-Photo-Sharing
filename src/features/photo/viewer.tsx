@@ -50,9 +50,16 @@ export function Viewer({ event, photo, previous, next, onMove, onClose, onStale 
   }, [])
 
   const download = useMutation({
-    mutationFn: (original: boolean) =>
-      api<{ url: string }>(eventApi(event.code, `/photos/${photo.id}/download${original ? '?original=1' : ''}`)),
-    onSuccess: ({ url }) => window.location.assign(url),
+    mutationFn: async (original: boolean) => {
+      const path = eventApi(event.code, `/photos/${photo.id}/download${original ? '?original=1' : ''}`)
+      for (let tries = 0; tries < 60; tries++) {
+        const { url } = await api<{ url: string | null }>(path)
+        if (url) return url
+        await new Promise((r) => setTimeout(r, 1000)) // the copy is being made
+      }
+      throw new Error('This is taking longer than usual. Please try again in a minute.')
+    },
+    onSuccess: (url) => window.location.assign(url),
   })
   const remove = useMutation({
     mutationFn: () => api(eventApi(event.code, `/photos/${photo.id}`), { method: 'DELETE' }),
@@ -140,7 +147,7 @@ export function Viewer({ event, photo, previous, next, onMove, onClose, onStale 
             )}
             {photo.canDownload && (
               <button type="button" className={control} disabled={download.isPending} onClick={() => download.mutate(event.me.kind === 'host')}>
-                Download
+                {download.isPending ? 'Getting it ready…' : 'Download'}
               </button>
             )}
             {event.me.kind === 'host' && <HostTools event={event} photo={photo} className={control} />}

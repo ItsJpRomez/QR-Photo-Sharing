@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/features/ui/dialog'
 import { Field, Input, Notice, Select, Textarea } from '@/features/ui/field'
 import { Switch } from '@/features/ui/switch'
 import { api } from '@/lib/api'
+import type { CoverState } from '@/modules/events/cover'
 import type { HostEventDto } from '@/modules/events/events'
 import type { EventPatch, SettingsPatch } from '@/modules/events/input'
 import { eventPath, hk, useEventChange, useHostEvent } from './queries'
@@ -98,7 +99,14 @@ function Cover({ event }: { event: HostEventDto }) {
     })
     const sent = await fetch(put.url, { method: 'PUT', headers: put.headers, body: file })
     if (!sent.ok) throw new Error("The photo didn't upload. Please try again.")
-    return api<HostEventDto>(path, { method: 'PUT', body: { uploadId } })
+    const { job } = await api<{ job: string }>(path, { method: 'PUT', body: { uploadId } })
+    for (let tries = 0; tries < 60; tries++) {
+      await new Promise((r) => setTimeout(r, 1000))
+      const now = await api<CoverState>(`${path}?job=${job}`)
+      if (now.state === 'failed') throw new Error(now.message)
+      if (now.state === 'done') return api<HostEventDto>(eventPath(event.id))
+    }
+    throw new Error('This is taking longer than usual. Reload the page in a minute.')
   })
   const remove = useEventChange(event.id, () => api<HostEventDto>(path, { method: 'DELETE' }))
   const problem = save.error ?? remove.error

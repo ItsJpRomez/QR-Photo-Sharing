@@ -3,7 +3,7 @@ import { db, getPool } from '@/db/client'
 import { heartbeats } from '@/db/schema'
 import { getBoss, type Jobs } from './boss'
 import { runCleanup } from './cleanup'
-import { handleExportJob, handleProcessJob, handlePurgeJob } from './handlers'
+import { handleCoverJob, handleDownloadJob, handleExportJob, handleProcessJob, handlePurgeJob } from './handlers'
 
 const boss = await getBoss()
 
@@ -18,6 +18,16 @@ await boss.work<Jobs['photo.purge']>('photo.purge', { batchSize: 1, localConcurr
   if (job) await handlePurgeJob(job.data)
 })
 
+await boss.work(
+  'photo.download',
+  { batchSize: 1, localConcurrency: 1, pollingIntervalSeconds: 0.5, includeMetadata: true },
+  async ([job]: JobWithMetadata<Jobs['photo.download']>[]) => {
+    if (job) await handleDownloadJob(job.data, job)
+  },
+)
+await boss.work<Jobs['cover.process']>('cover.process', { batchSize: 1, localConcurrency: 1, pollingIntervalSeconds: 0.5 }, async ([job]) => {
+  return job ? await handleCoverJob(job.data) : undefined
+})
 await boss.work(
   'export.build',
   { batchSize: 1, localConcurrency: 1, includeMetadata: true },

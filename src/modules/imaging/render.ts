@@ -15,12 +15,16 @@ const open = (buf: Buffer): Sharp =>
 
 const fitted = (s: Sharp, px: number) => s.resize(px, px, { fit: 'inside', withoutEnlargement: true })
 
-/** Unreadable photos are the sender's problem; running out of time is ours, and worth another try. */
-async function reading<T>(work: () => Promise<T>): Promise<T> {
+/** What the decoders say about a damaged file. Anything else is treated as our own trouble. */
+const DAMAGED =
+  /VipsJpeg|jpegload|vipspng|pngload|libspng|libpng|webp|heifload|heif:|source: bad seek|unsupported image format|Input buffer|pixel limit|corrupt|premature|truncat/i
+
+/** A damaged photo is refused for good. Trouble on our side is thrown as it is, to be tried again. */
+export async function reading<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work()
   } catch (err) {
-    if (err instanceof AppError || /time(d )?out|too long/i.test((err as Error).message)) throw err
+    if (err instanceof AppError || !DAMAGED.test((err as Error).message) || /memory/i.test((err as Error).message)) throw err
     throw new AppError('bad_type')
   }
 }

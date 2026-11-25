@@ -9,5 +9,5 @@ export const GET = route<{ code: string; photoId: string }>(async (req, { params
   const { event, viewer } = await resolveViewer({ code }, req)
   requireCan(viewer, 'gallery.view', { event })
   const original = new URL(req.url).searchParams.get('original') === '1'
-  return Response.json({ url: await downloadUrl(viewer, event, requireUuid(photoId), { original }) })
+  return Response.json(await downloadUrl(viewer, event, requireUuid(photoId), { original }))
 })

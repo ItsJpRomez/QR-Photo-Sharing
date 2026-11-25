@@ -5,7 +5,7 @@ import { DELETE as deleteRoute } from '@/app/api/e/[code]/photos/[photoId]/route
 import { POST as moderateRoute } from '@/app/api/host/events/[id]/moderate/route'
 import { db } from '@/db/client'
 import { comments, hearts, photoContributors, type EventRow } from '@/db/schema'
-import { handlePurgeJob } from '@/jobs/handlers'
+import { handleDownloadJob, handlePurgeJob } from '@/jobs/handlers'
 import { createAlbum } from '@/modules/events/albums'
 import { setFrozen, updateSettings } from '@/modules/events/events'
 import { getHub, type Outgoing } from '@/modules/live/hub'
@@ -132,6 +132,7 @@ describe('the host deletes', () => {
     await setHeart(ben, e, p.id, true)
     await addComment(ben, e, p.id, { text: 'nice' })
     await downloadUrl(ben, e, p.id)
+    await handleDownloadJob({ photoId: p.id }, { retryCount: 0, retryLimit: 3 })
     expect((await fresh(e)).usedPhotos).toBe(1)
     await moderate(host, e, [p.id], { kind: 'delete' })
     expect(await photoRow(p.id)).toMatchObject({ status: 'deleted', deletedBy: 'host', heartCount: 0 })

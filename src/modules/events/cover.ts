@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm'
 import { config } from '@/config'
 import { db } from '@/db/client'
 import { events, type EventRow } from '@/db/schema'
-import { AppError } from '@/lib/errors'
+import { enqueueOnce, getBoss, type Jobs } from '@/jobs/boss'
+import { AppError, errorMessage, type ErrorCode } from '@/lib/errors'
 import { inspect } from '@/modules/imaging/inspect'
 import { render } from '@/modules/imaging/render'
 import { publish } from '@/modules/live/publish'
@@ -16,18 +17,48 @@ export async function createCoverUpload(event: EventRow, o: { size: number; mime
   return { uploadId, put }
 }
 
-export async function finishCover(event: EventRow, uploadId: string): Promise<EventRow> {
+function checkUploadId(uploadId: string): string {
   if (!/^cover-[0-9a-f-]{36}$/.test(uploadId)) throw new AppError('bad_input')
-  const incoming = keys.incoming(event.id, uploadId)
+  return uploadId
+}
+
+/** Hands the photo to the worker. The answer comes through `coverState`. */
+export async function queueCover(event: EventRow, uploadId: string): Promise<string> {
+  const file = await storage.head(keys.incoming(event.id, checkUploadId(uploadId)))
+  if (!file) throw new AppError('bad_input', "The photo didn't arrive. Please try again.")
+  const job = await enqueueOnce('cover.process', { eventId: event.id, uploadId }, uploadId)
+  if (!job) throw new AppError('conflict')
+  return job
+}
+
+export type CoverState = { state: 'working' } | { state: 'done' } | { state: 'failed'; message: string }
+
+export async function coverState(event: EventRow, jobId: string): Promise<CoverState> {
+  const job = await (await getBoss()).findJobs<Jobs['cover.process']>('cover.process', { id: jobId }).then((all) => all[0])
+  if (!job || job.data.eventId !== event.id) throw new AppError('not_found')
+  if (job.state === 'failed' || job.state === 'cancelled') return { state: 'failed', message: errorMessage('internal') }
+  if (job.state !== 'completed') return { state: 'working' }
+  const result = job.output as CoverResult
+  return result.ok ? { state: 'done' } : { state: 'failed', message: errorMessage(result.code) }
+}
+
+export type CoverResult = { ok: true } | { ok: false; code: ErrorCode }
+
+export async function finishCover(event: EventRow, uploadId: string): Promise<EventRow> {
+  const incoming = keys.incoming(event.id, checkUploadId(uploadId))
   const file = await storage.head(incoming)
   if (!file) throw new AppError('bad_input', "The photo didn't arrive. Please try again.")
+  let keep = false
   try {
     if (file.size > config.limits.maxPhotoBytes) throw new AppError('too_large')
     const buf = await storage.read(incoming)
     const { display } = await render(buf, (await inspect(buf)).format)
     return await replaceCover(event, display)
+  } catch (err) {
+    keep = !(err instanceof AppError)
+    throw err
   } finally {
-    await storage.delete([incoming])
+    if (!keep) await storage.delete([incoming])
   }
 }
 

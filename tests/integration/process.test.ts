@@ -4,9 +4,9 @@ import { PUT as storagePut } from '@/app/api/storage/[...key]/route'
 import * as dbModule from '@/db/client'
 import { db } from '@/db/client'
 import { events, participants, photoContributors, photos, type EventRow } from '@/db/schema'
-import { handleProcessJob } from '@/jobs/handlers'
 import { sha256Hex } from '@/lib/ids'
-import { createCoverUpload, finishCover } from '@/modules/events/cover'
+import { handleCoverJob, handleProcessJob } from '@/jobs/handlers'
+import { coverState, createCoverUpload, finishCover, queueCover } from '@/modules/events/cover'
 import { processPhoto } from '@/modules/photos/process'
 import { uploadStates } from '@/modules/photos/uploads'
 import { keys, storage } from '@/modules/storage'
@@ -231,6 +231,16 @@ describe('covers', () => {
     const before = await fresh(e)
     await expect(finishCover(before, await put(Buffer.from('not a photo at all, sorry')))).rejects.toMatchObject({ code: 'bad_type' })
     expect((await fresh(e)).coverKey).toBe(before.coverKey)
+  })
+  test('are opened by the worker, and the host hears how it went', async () => {
+    const uploadId = await put(fixture('p3.jpg'))
+    const job = await queueCover(e, uploadId)
+    expect(await coverState(e, job)).toEqual({ state: 'working' })
+    const other = await makeEvent()
+    await expect(coverState(other, job)).rejects.toMatchObject({ code: 'not_found' })
+    expect(await handleCoverJob({ eventId: e.id, uploadId })).toEqual({ ok: true })
+    expect(await handleCoverJob({ eventId: e.id, uploadId: await put(Buffer.from('not a photo at all, sorry')) })).toEqual({ ok: false, code: 'bad_type' })
+    await expect(queueCover(e, 'cover-nope')).rejects.toMatchObject({ code: 'bad_input' })
   })
   test('too large is refused', async () => {
     await expect(createCoverUpload(e, { size: 40 * 1024 ** 2 + 1, mime: 'image/jpeg' })).rejects.toMatchObject({ code: 'too_large' })

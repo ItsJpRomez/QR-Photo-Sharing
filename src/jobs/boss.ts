@@ -6,6 +6,8 @@ import type { Tx } from '@/db/client'
 export type Jobs = {
   'photo.process': { photoId: string }
   'photo.purge': { eventId: string; photoId: string }
+  'photo.download': { photoId: string }
+  'cover.process': { eventId: string; uploadId: string }
   'export.build': { exportId: string }
 }
 
@@ -14,6 +16,8 @@ const MINUTE = 60
 const QUEUES: Record<keyof Jobs, Parameters<PgBoss['createQueue']>[1]> = {
   'photo.process': { retryLimit: 3, retryDelay: 2, retryBackoff: true, expireInSeconds: 5 * MINUTE, heartbeatSeconds: 30 },
   'photo.purge': { retryLimit: 10, retryDelay: 30, retryBackoff: true, expireInSeconds: 5 * MINUTE, heartbeatSeconds: 30 },
+  'photo.download': { retryLimit: 3, retryDelay: 2, retryBackoff: true, expireInSeconds: 5 * MINUTE, heartbeatSeconds: 30 },
+  'cover.process': { retryLimit: 1, retryDelay: 2, expireInSeconds: 5 * MINUTE, heartbeatSeconds: 30 },
   'export.build': { retryLimit: 3, retryDelay: 10, retryBackoff: true, expireInSeconds: 6 * 60 * MINUTE, heartbeatSeconds: 30 },
 }
 
@@ -42,4 +46,10 @@ export function getBoss(): Promise<PgBoss> {
 export async function enqueue<N extends keyof Jobs>(tx: Tx, name: N, data: Jobs[N]): Promise<void> {
   const boss = await getBoss()
   await boss.send(name, data, { db: fromDrizzle(tx, sql) })
+}
+
+/** Queues a job unless the same one was queued in the last minute. Its id, or null. */
+export async function enqueueOnce<N extends keyof Jobs>(name: N, data: Jobs[N], key: string): Promise<string | null> {
+  const boss = await getBoss()
+  return boss.send(name, data, { singletonKey: key, singletonSeconds: MINUTE })
 }

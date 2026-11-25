@@ -2,10 +2,31 @@ import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import zlib from 'node:zlib'
 import sharp from 'sharp'
+import { AppError } from '@/lib/errors'
 
 type Pixels = { width: number; height: number; data: Uint8ClampedArray }
+type Answer = Pixels | { bad: true }
 
 const LIMIT_MS = 30_000
+
+let running = 0
+let last: Promise<unknown> = Promise.resolve()
+
+export const heicRunning = () => running
+
+/** A large HEIC needs over a gigabyte while it is open, so only one is at a time. */
+export function heicToPng(buf: Buffer): Promise<Buffer> {
+  const turn = last.then(async () => {
+    running++
+    try {
+      return await convert(buf)
+    } finally {
+      running--
+    }
+  })
+  last = turn.catch(() => {})
+  return turn
+}
 
 function decode(buf: Buffer): Promise<Pixels> {
   return new Promise((resolve, reject) => {
@@ -17,7 +38,7 @@ function decode(buf: Buffer): Promise<Pixels> {
       void worker.terminate()
       then()
     }
-    worker.once('message', (m: Pixels) => finish(() => resolve(m)))
+    worker.once('message', (m: Answer) => finish(() => ('bad' in m ? reject(new AppError('bad_type')) : resolve(m))))
     worker.once('error', (err) => finish(() => reject(err)))
     worker.once('exit', () => finish(() => reject(new Error('The decoder stopped early'))))
   })
@@ -39,7 +60,7 @@ const PNG_HEADER_END = 33
  * photo's color profile, so the profile is put back for sharp to convert from;
  * without it, iPhone photos come out dull.
  */
-export async function heicToPng(buf: Buffer): Promise<Buffer> {
+async function convert(buf: Buffer): Promise<Buffer> {
   const { width, height, data } = await decode(buf)
   const png = await sharp(Buffer.from(data.buffer), { raw: { width, height, channels: 4 } })
     .png({ compressionLevel: 0 })
