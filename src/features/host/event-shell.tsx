@@ -13,6 +13,7 @@ const TABS = [
   ['', 'Photos'],
   ['/waiting', 'Waiting'],
   ['/organize', 'Albums & tags'],
+  ['/share', 'Share'],
   ['/settings', 'Settings'],
 ] as const
 
