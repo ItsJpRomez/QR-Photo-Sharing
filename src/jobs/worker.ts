@@ -1,0 +1,42 @@
+import type { JobWithMetadata } from 'pg-boss'
+import { db, getPool } from '@/db/client'
+import { heartbeats } from '@/db/schema'
+import { getBoss, type Jobs } from './boss'
+import { handleProcessJob, handlePurgeJob } from './handlers'
+
+const boss = await getBoss()
+
+await boss.work(
+  'photo.process',
+  { batchSize: 1, localConcurrency: 2, pollingIntervalSeconds: 0.5, includeMetadata: true },
+  async ([job]: JobWithMetadata<Jobs['photo.process']>[]) => {
+    if (job) await handleProcessJob(job.data, job)
+  },
+)
+await boss.work<Jobs['photo.purge']>('photo.purge', { batchSize: 1, localConcurrency: 2 }, async ([job]) => {
+  if (job) await handlePurgeJob(job.data)
+})
+
+async function beat() {
+  const at = new Date()
+  await db
+    .insert(heartbeats)
+    .values({ name: 'worker', at })
+    .onConflictDoUpdate({ target: heartbeats.name, set: { at } })
+    .catch((err: Error) => console.error('Heartbeat failed', err.message))
+}
+await beat()
+const timer = setInterval(() => void beat(), 15_000)
+
+let stopping = false
+async function stop() {
+  if (stopping) return
+  stopping = true
+  clearInterval(timer)
+  await boss.stop({ graceful: true, timeout: 25_000 })
+  await getPool().end()
+  process.exit(0)
+}
+process.on('SIGTERM', () => void stop())
+process.on('SIGINT', () => void stop())
+console.log('Worker is running.')

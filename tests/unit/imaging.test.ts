@@ -51,6 +51,11 @@ describe('inspect', () => {
   })
 })
 
+test('extra bytes some phones add after a HEIC are fine', async () => {
+  const buf = Buffer.concat([load('rotated-gps.heic'), Buffer.from('SEFT trailer from a phone \xff\xff\xff\xff', 'latin1')])
+  expect(await inspect(buf)).toMatchObject({ format: 'heic' })
+})
+
 describe('render', () => {
   test.each(['p3.jpg', 'p3.heic'])('%s keeps its true color', async (file) => {
     const buf = load(file)

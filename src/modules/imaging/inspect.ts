@@ -30,20 +30,26 @@ function family(buf: Buffer): 'jpeg' | 'png' | 'webp' | 'heif' | null {
   return null
 }
 
-/** HEIC and AVIF list the size of each part, so a file that was cut short gives itself away. */
+/**
+ * HEIC and AVIF list the size of each part, so a file that was cut short gives
+ * itself away. Only the two parts holding the picture matter: some phones add
+ * their own bytes at the end.
+ */
 function isComplete(buf: Buffer): boolean {
+  let meta = false
+  let pixels = false
   let at = 0
   while (at + 8 <= buf.length) {
+    const type = buf.toString('latin1', at + 4, at + 8)
     let size = buf.readUInt32BE(at)
-    if (size === 0) return true // runs to the end of the file
-    if (size === 1) {
-      if (at + 16 > buf.length) return false
-      size = Number(buf.readBigUInt64BE(at + 8))
-    }
-    if (size < 8) return false
+    if (size === 1 && at + 16 <= buf.length) size = Number(buf.readBigUInt64BE(at + 8))
+    if (size === 0) size = buf.length - at // runs to the end of the file
+    if (size < 8 || at + size > buf.length) break
+    if (type === 'meta') meta = true
+    if (type === 'mdat') pixels = true
     at += size
   }
-  return at === buf.length
+  return meta && pixels
 }
 
 async function cameraTime(exif: Buffer | undefined): Promise<Pick<Inspected, 'takenLocal' | 'offset'>> {
