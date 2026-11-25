@@ -72,7 +72,7 @@ function Details({ event }: { event: HostEventDto }) {
         <form.Field name="accent">
           {(f) => (
             <Field label="Event color">
-              {(p) => <Input {...p} type="color" className="w-24 p-1" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />}
+              {(p) => <Input {...p} type="color" className="!w-24 !p-1" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />}
             </Field>
           )}
         </form.Field>

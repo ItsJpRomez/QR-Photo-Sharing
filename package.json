@@ -10,7 +10,7 @@
     "dev": "next dev",
     "dev:worker": "tsx watch --env-file-if-exists=.env src/jobs/worker.ts",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --keepAliveTimeout 75000",
     "start:worker": "tsx --env-file-if-exists=.env src/jobs/worker.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
@@ -73,6 +73,7 @@
     "pg": "^8.23.1",
     "tailwindcss": "^4.3.5",
     "typescript": "~6.0.0",
+    "undici": "^8.13.1",
     "vite": "^8.3.8",
     "vitest": "^5.1.2",
     "yauzl": "^3.4.0"

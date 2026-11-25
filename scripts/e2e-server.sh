@@ -16,5 +16,5 @@ npx tsx scripts/migrate.ts
 pids=()
 trap 'kill "${pids[@]}" 2>/dev/null || true' EXIT INT TERM
 if [ -f src/jobs/worker.ts ]; then npx tsx src/jobs/worker.ts & pids+=($!); fi
-npx next start -p "${E2E_PORT:-3200}" & pids+=($!)
+npx next start --keepAliveTimeout 75000 -p "${E2E_PORT:-3200}" & pids+=($!)
 wait

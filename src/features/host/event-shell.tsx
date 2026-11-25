@@ -19,6 +19,12 @@ const TABS = [
   ['/settings', 'Settings'],
 ] as const
 
+/** On a phone the tabs scroll sideways, so the open one is brought into sight. */
+function intoView(tab: HTMLAnchorElement | null) {
+  const bar = tab?.parentElement
+  if (tab && bar) bar.scrollLeft = tab.offsetLeft - (bar.clientWidth - tab.clientWidth) / 2
+}
+
 export function EventShell({ initial, children }: { initial: HostEventDto; children: ReactNode }) {
   const path = usePathname()
   const { data: event = initial } = useHostEvent(initial.id, initial)
@@ -45,6 +51,7 @@ export function EventShell({ initial, children }: { initial: HostEventDto; child
           return (
             <Link
               key={rest}
+              ref={current ? intoView : undefined}
               href={base + rest}
               aria-current={current ? 'page' : undefined}
               className={cx(

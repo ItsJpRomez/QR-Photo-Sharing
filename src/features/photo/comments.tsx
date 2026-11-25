@@ -28,10 +28,11 @@ export function Comments({ event, photoId }: { event: OpenEventDto; photoId: str
   })
   const refresh = () => client.invalidateQueries({ queryKey: key })
   const post = useMutation({
-    mutationFn: () =>
-      api(eventApi(code, `/photos/${photoId}/comments`), { method: 'POST', body: { text, name: name.trim() || undefined } }),
-    onSuccess: () => {
-      setText('')
+    mutationFn: (sent: string) =>
+      api(eventApi(code, `/photos/${photoId}/comments`), { method: 'POST', body: { text: sent, name: name.trim() || undefined } }),
+    onSuccess: (_made, sent) => {
+      // Whatever was typed meanwhile is the next comment.
+      setText((now) => (now === sent ? '' : now))
       if (name.trim())
         client.setQueryData<EventDto>(qk.event(code), (e) => (e && !e.pinRequired ? { ...e, me: { ...e.me, name: name.trim() } } : e))
       return refresh()
@@ -91,7 +92,7 @@ export function Comments({ event, photoId }: { event: OpenEventDto; photoId: str
           className="grid gap-3"
           onSubmit={(e) => {
             e.preventDefault()
-            post.mutate()
+            post.mutate(text)
           }}
         >
           <Field label="Add a comment">

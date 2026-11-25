@@ -89,3 +89,24 @@ test('turned off, they disappear from an open photo', async ({ page, browser }) 
   await expect(guest.getByRole('button', { name: /^Heart/ })).toHaveCount(0, { timeout: 6000 })
   await expect(guest.getByRole('button', { name: /^Comments/ })).toHaveCount(0)
 })
+
+test('a comment typed while the last one is being sent is not wiped', async ({ page, browser }) => {
+  const { event, guest } = await eventWithGuest(page, browser)
+  await seedPhotos(event.id, { count: 1 })
+  await guest.goto(`/e/${event.code}`)
+  await tiles(guest).first().click()
+  await guest.getByRole('button', { name: /^Comments/ }).click()
+  let release!: () => void
+  const held = new Promise<void>((r) => (release = r))
+  await guest.route('**/comments', async (r) => {
+    if (r.request().method() === 'POST') await held
+    await r.continue()
+  })
+  await guest.getByLabel('Add a comment').fill('First')
+  await guest.getByRole('button', { name: 'Post comment' }).click()
+  await guest.getByLabel('Add a comment').fill('Second')
+  release()
+  await expect(guest.getByText('First', { exact: true })).toBeVisible()
+  await expect(guest.getByRole('button', { name: 'Post comment' })).toBeEnabled()
+  await expect(guest.getByLabel('Add a comment')).toHaveValue('Second')
+})

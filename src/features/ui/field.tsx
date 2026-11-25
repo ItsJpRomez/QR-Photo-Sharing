@@ -43,7 +43,7 @@ export function Textarea({ className, ...rest }: ComponentProps<'textarea'>) {
 }
 
 export function Select({ className, ...rest }: ComponentProps<'select'>) {
-  return <select className={cx(inputClass, className)} {...rest} />
+  return <select className={cx(inputClass, 'pr-9', className)} {...rest} />
 }
 
 export function Notice({ tone = 'info', children }: { tone?: 'info' | 'ok' | 'danger'; children: ReactNode }) {

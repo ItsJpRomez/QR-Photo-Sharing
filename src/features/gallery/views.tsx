@@ -58,7 +58,7 @@ function OrderPicker({ order, isDefault }: { order: string; isDefault: (o: strin
       aria-label="Order"
       value={order}
       onChange={(e) => setAddress({ order: isDefault(e.target.value) ? null : e.target.value })}
-      className="mr-2 min-h-11 max-w-28 shrink-0 rounded-control border border-line-strong bg-sheet px-2 text-sm sm:max-w-none"
+      className="mr-2 min-h-11 max-w-32 shrink-0 rounded-control border border-line-strong bg-sheet pl-3 pr-8 text-sm sm:max-w-none"
     >
       <option value="newest">Newest</option>
       <option value="taken">Time taken</option>

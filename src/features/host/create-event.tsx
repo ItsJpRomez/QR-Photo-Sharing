@@ -121,7 +121,7 @@ export function CreateEvent() {
           <form.Field name="accent">
             {(f) => (
               <Field label="Event color" hint="Used on signs and the gallery.">
-                {(p) => <Input {...p} type="color" className="p-1" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />}
+                {(p) => <Input {...p} type="color" className="!p-1" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />}
               </Field>
             )}
           </form.Field>

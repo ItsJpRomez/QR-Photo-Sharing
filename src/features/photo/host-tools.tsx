@@ -36,7 +36,7 @@ export function HostTools({ event, photo, className }: Props) {
       {event.albums.length > 0 && (
         <select
           aria-label="Album"
-          className={`${className} !bg-black text-white`}
+          className={`${className} !bg-black !pr-9 text-white`}
           value={photo.albumId ?? ''}
           disabled={change.isPending}
           onChange={(e) => change.mutate({ kind: 'move', albumId: e.target.value || null })}
