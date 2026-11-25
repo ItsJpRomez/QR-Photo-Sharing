@@ -1,15 +1,18 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getQueue } from '@/features/upload-queue/use-queue'
 import { Viewer } from '@/features/photo/viewer'
 import { Button } from '@/features/ui/button'
 import { Notice } from '@/features/ui/field'
 import { textOn } from '@/lib/color'
 import type { OpenEventDto } from '@/modules/events/view'
+import { AddSheet } from './add-sheet'
 import { Hero } from './hero'
 import { PhotoGrid } from './photo-grid'
 import { usePhoto, usePhotos, useRefreshPhotos, useTrending } from './queries'
 import { setAddress, useAddress } from './use-address'
+import { UploadBar } from './upload-bar'
 import { Views } from './views'
 
 const EMPTY: Record<string, string> = {
@@ -30,6 +33,7 @@ export function Gallery({ event }: { event: OpenEventDto }) {
   const { data: trending = [] } = useTrending(code)
   const photos = usePhotos(code, view, order)
   const refresh = useRefreshPhotos(code)
+  const [adding, setAdding] = useState(false)
   const list = useMemo(() => photos.data?.pages.flatMap((p) => p.items) ?? [], [photos.data])
   const at = openId ? list.findIndex((p) => p.id === openId) : -1
   const elsewhere = usePhoto(code, openId, list[at])
@@ -39,6 +43,14 @@ export function Gallery({ event }: { event: OpenEventDto }) {
   const loadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
   }, [fetchNextPage, hasNextPage, isFetchingNextPage])
+
+  // Photos that were waiting for the PIN, the new link or the host can go on.
+  useEffect(() => {
+    getQueue().resumeAccess(event.id, code)
+  }, [event.id, code])
+  useEffect(() => {
+    if (event.canUpload) getQueue().reopen(event.id)
+  }, [event.id, event.canUpload])
 
   // Opening a photo adds one step to the history; moving between photos doesn't.
   const pushed = useRef(false)
@@ -101,17 +113,20 @@ export function Gallery({ event }: { event: OpenEventDto }) {
           </p>
         )}
       </main>
-      {event.canUpload && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 grid justify-items-center gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <UploadBar eventId={event.id} code={code} />
+        {event.canUpload && (
           <button
             type="button"
             className="pointer-events-auto min-h-14 rounded-full px-8 text-lg font-bold shadow-[0_4px_0_rgb(0_0_0/0.25)]"
             style={{ background: event.accent, color: textOn(event.accent) }}
+            onClick={() => setAdding(true)}
           >
             Add photos
           </button>
-        </div>
-      )}
+        )}
+      </div>
+      {adding && <AddSheet event={event} onClose={() => setAdding(false)} />}
       {open && (
         <Viewer
           event={event}

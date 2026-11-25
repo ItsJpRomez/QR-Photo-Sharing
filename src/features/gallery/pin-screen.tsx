@@ -6,6 +6,8 @@ import { Field, Input, Notice } from '@/features/ui/field'
 import { Button } from '@/features/ui/button'
 import { api } from '@/lib/api'
 import type { LockedEventDto } from '@/modules/events/view'
+import { plural } from '@/features/host/format'
+import { useQueueItems } from '@/features/upload-queue/use-queue'
 import { Hero } from './hero'
 import { qk } from './cache'
 import { eventApi } from './queries'
@@ -13,6 +15,7 @@ import { eventApi } from './queries'
 export function PinScreen({ code, event }: { code: string; event: LockedEventDto }) {
   const client = useQueryClient()
   const [pin, setPin] = useState('')
+  const waiting = useQueueItems().filter((i) => i.code === code && i.state === 'needs_access').length
   const open = useMutation({
     mutationFn: () => api(eventApi(code, '/pin'), { method: 'POST', body: { pin } }),
     onSuccess: () => client.invalidateQueries({ queryKey: qk.event(code) }),
@@ -28,6 +31,11 @@ export function PinScreen({ code, event }: { code: string; event: LockedEventDto
           open.mutate()
         }}
       >
+        {waiting > 0 && (
+          <Notice>
+            {plural(waiting, 'photo')} {waiting === 1 ? 'is' : 'are'} waiting. Enter the PIN to finish uploading.
+          </Notice>
+        )}
         <Field label="PIN" hint="Ask the host, or look on the sign with the QR code.">
           {(p) => (
             <Input
