@@ -14,6 +14,7 @@ const TABS = [
   ['/waiting', 'Waiting'],
   ['/organize', 'Albums & tags'],
   ['/share', 'Share'],
+  ['/export', 'Download'],
   ['/settings', 'Settings'],
 ] as const
 

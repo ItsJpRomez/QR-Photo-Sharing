@@ -10,20 +10,22 @@ export type Jobs = {
 }
 
 const MINUTE = 60
+// A worker that dies stops its heartbeat, so its jobs are picked up again within a minute.
 const QUEUES: Record<keyof Jobs, Parameters<PgBoss['createQueue']>[1]> = {
-  'photo.process': { retryLimit: 3, retryDelay: 2, retryBackoff: true, expireInSeconds: 5 * MINUTE },
-  'photo.purge': { retryLimit: 10, retryDelay: 30, retryBackoff: true, expireInSeconds: 5 * MINUTE },
-  'export.build': { retryLimit: 3, retryDelay: 10, retryBackoff: true, expireInSeconds: 6 * 60 * MINUTE, heartbeatSeconds: 60 },
+  'photo.process': { retryLimit: 3, retryDelay: 2, retryBackoff: true, expireInSeconds: 5 * MINUTE, heartbeatSeconds: 30 },
+  'photo.purge': { retryLimit: 10, retryDelay: 30, retryBackoff: true, expireInSeconds: 5 * MINUTE, heartbeatSeconds: 30 },
+  'export.build': { retryLimit: 3, retryDelay: 10, retryBackoff: true, expireInSeconds: 6 * 60 * MINUTE, heartbeatSeconds: 30 },
 }
 
 const shared = globalThis as unknown as { __boss?: Promise<PgBoss> }
 
 async function open(): Promise<PgBoss> {
-  const boss = new PgBoss({ connectionString: config.databaseUrl, max: 4 })
+  const boss = new PgBoss({ connectionString: config.databaseUrl, max: 4, superviseIntervalSeconds: 20 })
   boss.on('error', (err) => console.error('Job queue problem', err.message))
   await boss.start()
   for (const [name, options] of Object.entries(QUEUES)) {
     await boss.createQueue(name, options)
+    await boss.updateQueue(name, options) // when it already exists with older options
   }
   return boss
 }

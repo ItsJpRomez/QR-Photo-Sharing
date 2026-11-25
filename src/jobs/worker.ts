@@ -2,7 +2,7 @@ import type { JobWithMetadata } from 'pg-boss'
 import { db, getPool } from '@/db/client'
 import { heartbeats } from '@/db/schema'
 import { getBoss, type Jobs } from './boss'
-import { handleProcessJob, handlePurgeJob } from './handlers'
+import { handleExportJob, handleProcessJob, handlePurgeJob } from './handlers'
 
 const boss = await getBoss()
 
@@ -16,6 +16,14 @@ await boss.work(
 await boss.work<Jobs['photo.purge']>('photo.purge', { batchSize: 1, localConcurrency: 2 }, async ([job]) => {
   if (job) await handlePurgeJob(job.data)
 })
+
+await boss.work(
+  'export.build',
+  { batchSize: 1, localConcurrency: 1, includeMetadata: true },
+  async ([job]: JobWithMetadata<Jobs['export.build']>[]) => {
+    if (job) await handleExportJob(job.data, job)
+  },
+)
 
 async function beat() {
   const at = new Date()
