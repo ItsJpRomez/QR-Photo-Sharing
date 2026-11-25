@@ -23,6 +23,9 @@ export function firstCharacters(s: string, max: number): string {
  
 const UNSAFE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/g
 
+// Marks that take up no room, so a text made only of them is blank. Emoji need some of them.
+const INVISIBLE = /[\u00ad\u200b-\u200f\u2060\ufeff]/g
+
 type Options = { min?: number; multiline?: boolean }
 
 /** Plain text of at most `max` characters, trimmed and cleaned. */
@@ -36,7 +39,8 @@ export function plainText(max: number, { min = 0, multiline = false }: Options =
     })
     .refine((s) => {
       const n = countCharacters(s)
-      return n >= min && n <= max && s.length <= max * 12
+      const blank = s.replace(INVISIBLE, '').trim() === ''
+      return (min === 0 || !blank) && n >= min && n <= max && s.length <= max * 12
     })
 }
 

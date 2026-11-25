@@ -5,10 +5,13 @@ import { useEffect, useRef, useState } from 'react'
 import { patchPhotos } from '@/features/gallery/cache'
 import { eventApi } from '@/features/gallery/queries'
 import { tileLabel } from '@/features/gallery/photo-grid'
+import { cx } from '@/features/ui/cx'
 import { ConfirmDialog } from '@/features/ui/dialog'
 import { api } from '@/lib/api'
 import type { OpenEventDto } from '@/modules/events/view'
 import type { PhotoDto } from '@/modules/photos/query'
+import { Comments } from './comments'
+import { HeartButton, useHeart } from './heart'
 import { PhotoImage } from './photo-image'
 
 type Props = {
@@ -30,6 +33,8 @@ export function Viewer({ event, photo, previous, next, onMove, onClose, onStale 
   const client = useQueryClient()
   const [drag, setDrag] = useState<{ from: number; by: number } | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [talking, setTalking] = useState(false)
+  const heart = useHeart(event.code, photo)
 
   useEffect(() => {
     const el = ref.current
@@ -63,7 +68,8 @@ export function Viewer({ event, photo, previous, next, onMove, onClose, onStale 
     setDrag(null)
   }
   const album = event.albums.find((a) => a.id === photo.albumId)
-  const problem = download.error ?? remove.error
+  const problem = download.error ?? remove.error ?? heart.error
+  const mayReact = event.me.kind === 'host' || !event.frozen
 
   return (
     <dialog
@@ -82,7 +88,7 @@ export function Viewer({ event, photo, previous, next, onMove, onClose, onStale 
       tabIndex={-1}
       className="m-0 size-full max-h-none max-w-none bg-black text-white outline-none"
     >
-      <div className="flex h-dvh flex-col">
+      <div className={cx('flex flex-col', talking ? 'min-h-dvh' : 'h-dvh')}>
         <div className="flex items-center justify-between gap-2 p-2">
           <button type="button" className={control} onClick={onClose}>
             Close
@@ -98,7 +104,7 @@ export function Viewer({ event, photo, previous, next, onMove, onClose, onStale 
         </div>
         <div
           data-testid="stage"
-          className="min-h-0 flex-1 touch-pan-y touch-pinch-zoom select-none"
+          className={cx('touch-pan-y touch-pinch-zoom select-none', talking ? 'h-[45dvh] shrink-0' : 'min-h-0 flex-1')}
           onPointerDown={(e) => e.isPrimary && setDrag({ from: e.clientX, by: 0 })}
           onPointerMove={(e) => drag && e.isPrimary && setDrag({ ...drag, by: e.clientX - drag.from })}
           onPointerUp={release}
@@ -116,13 +122,21 @@ export function Viewer({ event, photo, previous, next, onMove, onClose, onStale 
             </p>
           )}
           <p className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="font-semibold">{photo.uploader}</span>
+            <bdi className="font-semibold">{photo.uploader}</bdi>
             {album && <span>{album.name}</span>}
             {photo.tags.map((t) => (
               <span key={t}>#{t}</span>
             ))}
           </p>
           <div className="flex flex-wrap gap-2">
+            {event.features.hearts && photo.heartCount !== undefined && (
+              <HeartButton photo={photo} heart={heart} disabled={!mayReact} className={control} />
+            )}
+            {event.features.comments && (
+              <button type="button" className={control} aria-expanded={talking} onClick={() => setTalking(!talking)}>
+                Comments ({photo.commentCount ?? 0})
+              </button>
+            )}
             {photo.canDownload && (
               <button type="button" className={control} disabled={download.isPending} onClick={() => download.mutate(event.me.kind === 'host')}>
                 Download
@@ -135,6 +149,7 @@ export function Viewer({ event, photo, previous, next, onMove, onClose, onStale 
             )}
           </div>
         </div>
+        {talking && event.features.comments && <Comments key={photo.id} event={event} photoId={photo.id} />}
       </div>
       <ConfirmDialog
         open={deleting}
