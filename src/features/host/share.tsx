@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Button, buttonClass } from '@/features/ui/button'
 import { Field, Input } from '@/features/ui/field'
+import { SignEditor } from './sign-editor'
 import { eventPath, useHostEvent } from './queries'
 
 function CopyField({ label, value }: { label: string; value: string }) {
@@ -47,6 +48,7 @@ export function Share({ id }: { id: string }) {
           </div>
         </div>
       </section>
+      <SignEditor event={event} />
     </div>
   )
 }
