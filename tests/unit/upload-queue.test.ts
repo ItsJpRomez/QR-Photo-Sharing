@@ -480,6 +480,19 @@ describe('two tabs', () => {
   })
 })
 
+test('saving many photos reports progress, so the page can ask not to be closed yet', async () => {
+  const q = make()
+  const seen: [number, boolean][] = []
+  expect(q.isSaving()).toBe(false)
+  await q.add([file('a'), file('b'), file('c')], TO, META, (n) => seen.push([n, q.isSaving()]))
+  expect(seen).toEqual([
+    [1, true],
+    [2, true],
+    [3, true],
+  ])
+  expect(q.isSaving()).toBe(false)
+})
+
 test('200 photos are stored one at a time, and read back only when sent', async () => {
   const q = make()
   let writing = 0

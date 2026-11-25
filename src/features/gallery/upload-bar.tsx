@@ -58,7 +58,8 @@ export function UploadBar({ eventId, code }: { eventId: string; code: string }) 
   const items = useQueueItems().filter((i) => i.eventId === eventId)
   const [open, setOpen] = useState(false)
   const paused = items.some((i) => i.state === 'needs_access')
-  const settled = items.filter((i) => i.settled || i.state === 'added').length
+  const arrived = items.filter((i) => i.state === 'added').length
+  const settled = items.filter((i) => i.settled).length
   const failed = items.some((i) => i.state === 'failed')
 
   // Find out whether it's the PIN or the link that changed.
@@ -67,8 +68,8 @@ export function UploadBar({ eventId, code }: { eventId: string; code: string }) 
   }, [paused, client, code])
 
   useEffect(() => {
-    if (settled) void client.invalidateQueries({ queryKey: qk.allPhotos(code) })
-  }, [settled, client, code])
+    if (arrived + settled) void client.invalidateQueries({ queryKey: qk.allPhotos(code) })
+  }, [arrived, settled, client, code])
 
   if (!items.length) return null
   const done = items.every((i) => i.settled || i.state === 'added')

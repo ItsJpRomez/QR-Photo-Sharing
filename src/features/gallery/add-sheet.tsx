@@ -73,6 +73,7 @@ export function AddSheet({ event, onClose }: { event: OpenEventDto; onClose: () 
   const [more, setMore] = useState('')
   const [name, setName] = useState(event.me.name)
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(0)
   const titleId = useId()
 
   useEffect(() => {
@@ -85,7 +86,7 @@ export function AddSheet({ event, onClose }: { event: OpenEventDto; onClose: () 
   async function upload() {
     setBusy(true)
     void navigator.storage?.persist?.().catch(() => {})
-    await getQueue().add(files, { eventId: event.id, code: event.code }, { albumId: albumId || null, tags, name: name.trim() || undefined })
+    await getQueue().add(files, { eventId: event.id, code: event.code }, { albumId: albumId || null, tags, name: name.trim() || undefined }, setSaved)
     if (name.trim()) {
       client.setQueryData<EventDto>(qk.event(event.code), (e) => (e && !e.pinRequired ? { ...e, me: { ...e.me, name: name.trim() } } : e))
     }
@@ -98,7 +99,7 @@ export function AddSheet({ event, onClose }: { event: OpenEventDto; onClose: () 
       aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault()
-        onClose()
+        if (!busy) onClose()
       }}
       className="fixed inset-x-0 top-auto bottom-0 m-0 mx-auto max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-sheet bg-sheet p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-ink backdrop:bg-ink/60 sm:bottom-6 sm:rounded-sheet"
     >
@@ -113,7 +114,7 @@ export function AddSheet({ event, onClose }: { event: OpenEventDto; onClose: () 
           <h2 id={titleId} className="text-2xl font-bold">
             Add photos
           </h2>
-          <Button variant="quiet" size="sm" onClick={onClose}>
+          <Button variant="quiet" size="sm" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
         </div>
@@ -186,7 +187,7 @@ export function AddSheet({ event, onClose }: { event: OpenEventDto; onClose: () 
           <li>The host gets your original photos, which can include the location. Other guests only get copies without it.</li>
         </ul>
         <Button type="submit" disabled={!files.length || busy}>
-          {files.length ? `Upload ${plural(files.length, 'photo')}` : 'Choose photos first'}
+          {busy ? `Saving ${saved} of ${files.length}. Don't close this page yet.` : files.length ? `Upload ${plural(files.length, 'photo')}` : 'Choose photos first'}
         </Button>
       </form>
     </dialog>

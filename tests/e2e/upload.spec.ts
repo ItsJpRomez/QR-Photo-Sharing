@@ -84,6 +84,7 @@ test('closing the page in the middle loses nothing and sends nothing twice', asy
   })
   await choose(guest, await pictures(5, true))
   await guest.getByRole('button', { name: 'Upload 5 photos' }).click()
+  await expect(guest.getByRole('dialog', { name: 'Add photos' })).toBeHidden() // everything is saved on the phone
   await expect(guest.getByText(/Uploading/).first()).toBeVisible()
   held = false
   await guest.unrouteAll({ behavior: 'ignoreErrors' })

@@ -49,6 +49,7 @@ export class UploadQueue {
   private readonly addedDuring = new Set<Set<string>>()
   /** The link each event is known to answer to now. */
   private readonly codes = new Map<string, string>()
+  private saving = 0
   private running = false
   private leader = false
   private letGo = () => {}
@@ -90,9 +91,28 @@ export class UploadQueue {
     this.letGo()
   }
 
-  async add(files: File[], to: { eventId: string; code: string }, meta: ItemMeta): Promise<{ persisted: boolean }> {
+  /** Photos are still being copied into storage. Until then, closing the page would lose them. */
+  isSaving(): boolean {
+    return this.saving > 0
+  }
+
+  async add(
+    files: File[],
+    to: { eventId: string; code: string },
+    meta: ItemMeta,
+    onSaved: (count: number) => void = () => {},
+  ): Promise<{ persisted: boolean }> {
+    this.saving++
+    try {
+      return await this.save(files, to, meta, onSaved)
+    } finally {
+      this.saving--
+    }
+  }
+
+  private async save(files: File[], to: { eventId: string; code: string }, meta: ItemMeta, onSaved: (count: number) => void) {
     let persisted = true
-    for (const file of files) {
+    for (const [n, file] of files.entries()) {
       const item: QueueItem = {
         ...to,
         clientId: crypto.randomUUID(),
@@ -117,6 +137,7 @@ export class UploadQueue {
         this.inMemory.set(item.clientId, file)
       }
       this.adding.delete(item.clientId)
+      onSaved(n + 1)
       this.show()
       this.pump()
     }

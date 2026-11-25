@@ -66,7 +66,7 @@ export function useRunQueue(): void {
     const nudge = () => q.nudge()
     const ifVisible = () => document.visibilityState === 'visible' && q.nudge()
     const warn = (e: BeforeUnloadEvent) => {
-      if (q.items().some((i) => !i.persisted && !i.settled && i.state !== 'failed')) e.preventDefault()
+      if (q.isSaving() || q.items().some((i) => !i.persisted && !i.settled && i.state !== 'failed')) e.preventDefault()
     }
     window.addEventListener('online', nudge)
     window.addEventListener('offline', nudge)
