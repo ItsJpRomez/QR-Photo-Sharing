@@ -12,6 +12,9 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { S3Config } from '@/config'
 import { assertPrefix, attachment, GET_SECONDS, hourStart, PUT_SECONDS, type ObjectStorage } from './types'
 
+// Links change every hour, so a file is never kept longer than its link works.
+const CACHE = 'private, max-age=3600'
+
 /** Cloudflare R2, or any other S3-compatible service. */
 export class S3Storage implements ObjectStorage {
   private readonly client: S3Client
@@ -70,7 +73,7 @@ export class S3Storage implements ObjectStorage {
 
   async put(key: string, body: Buffer | Readable, contentType: string) {
     if (Buffer.isBuffer(body)) {
-      await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }))
+      await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType, CacheControl: CACHE }))
       return { size: body.length }
     }
     let size = 0
@@ -84,7 +87,7 @@ export class S3Storage implements ObjectStorage {
     // 16 MB parts allow objects up to 160 GB within the 10,000-part limit.
     await new Upload({
       client: this.client,
-      params: { Bucket: this.bucket, Key: key, Body: NodeReadable.from(counted), ContentType: contentType },
+      params: { Bucket: this.bucket, Key: key, Body: NodeReadable.from(counted), ContentType: contentType, CacheControl: CACHE },
       partSize: 16 * 1024 * 1024,
       queueSize: 2,
       leavePartsOnError: false,

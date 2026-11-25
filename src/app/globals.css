@@ -90,3 +90,15 @@
     opacity: 0;
   }
 }
+
+.tv-slide {
+  animation: tv-slide 700ms ease-out;
+}
+@keyframes tv-slide {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

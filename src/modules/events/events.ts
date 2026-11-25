@@ -55,7 +55,7 @@ async function update(eventId: string, set: Parameters<ReturnType<typeof db.upda
   return row
 }
 
-const announce = (tx: Executor, eventId: string, type: 'event' | 'access' = 'event') =>
+const announce = (tx: Executor, eventId: string, type: 'event' | 'access' | 'tv' = 'event') =>
   publish(tx, { eventId, type, ids: [], audience: 'everyone' })
 
 /** A change every open screen should show. */
@@ -94,7 +94,11 @@ export async function replaceCode(eventId: string): Promise<EventRow> {
   return row
 }
 
-export const replaceTvToken = (eventId: string) => update(eventId, { tvToken: newToken() })
+export async function replaceTvToken(eventId: string): Promise<EventRow> {
+  const row = await update(eventId, { tvToken: newToken() })
+  await announce(db, eventId, 'tv')
+  return row
+}
 
 export function listEvents(userId: string): Promise<EventRow[]> {
   return db.select().from(events).where(eq(events.ownerId, userId)).orderBy(desc(events.eventDate), desc(events.createdAt))

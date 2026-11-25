@@ -10,6 +10,8 @@ export type LiveType =
   /** The PIN or the link changed, so guests must be let in again. */
   | 'access'
   | 'deleted'
+  /** The TV link was replaced. */
+  | 'tv'
 
 export type LiveMessage = {
   eventId: string

@@ -72,8 +72,9 @@ class Hub {
     const host = s.viewer.kind === 'host'
     const named = Array.isArray(msg.audience) && s.viewer.kind === 'guest' && msg.audience.includes(s.viewer.participantId)
     if (msg.audience !== 'everyone' && !host && !named) return
+    if (msg.type === 'tv' && s.viewer.kind !== 'tv') return
     s.send({ type: msg.type, ids: msg.ids })
-    if (msg.type === 'deleted' || (msg.type === 'access' && s.viewer.kind === 'guest')) s.close()
+    if (msg.type === 'deleted' || msg.type === 'tv' || (msg.type === 'access' && s.viewer.kind === 'guest')) s.close()
   }
 
   private gatherHearts(msg: LiveMessage): void {
