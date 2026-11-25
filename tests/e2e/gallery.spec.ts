@@ -133,6 +133,7 @@ test('guests may delete their own, with a word about clearing the browser', asyn
   const { event, guest } = await eventWithGuest(page, browser)
   await guest.goto(`/e/${event.code}`)
   await expect(guest.getByText('Be the first to add a photo')).toBeVisible()
+  await guest.request.patch(`/api/e/${event.code}/me`, { headers: { origin: 'http://localhost:3200' }, data: { name: 'Me' } })
   const me = await (await guest.request.get(`/api/e/${event.code}`)).json()
   await seedPhotos(event.id, { count: 1, by: me.me.participantId })
   await guest.reload()

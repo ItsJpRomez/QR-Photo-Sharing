@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { withTx } from '@/db/client'
 import { hearts, photos, type EventRow } from '@/db/schema'
 import { requireCan } from '@/modules/access/can'
+import { ensureParticipant } from '@/modules/access/viewer'
 import { publish } from '@/modules/live/publish'
 import { visiblePhoto, type Unlocked } from '@/modules/photos/query'
 
@@ -9,6 +10,7 @@ export async function setHeart(viewer: Unlocked, event: EventRow, photoId: strin
   requireCan(viewer, 'photo.heart', { event })
   await visiblePhoto(viewer, event, photoId)
   return withTx(async (tx) => {
+    await ensureParticipant(tx, viewer, event)
     // Holding the photo keeps the count equal to the hearts, however fast people tap.
     const [photo] = await tx.select({ n: photos.heartCount }).from(photos).where(eq(photos.id, photoId)).for('update')
     const mine = and(eq(hearts.photoId, photoId), eq(hearts.participantId, viewer.participantId))

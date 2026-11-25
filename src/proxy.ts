@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { NextResponse, type NextRequest } from 'next/server'
 import { config as app } from '@/config'
+import { clientIp } from '@/lib/ip'
 
 // Kept in step with modules/access/viewer.ts, which this file doesn't import so
 // that it never pulls in the database.
@@ -46,6 +47,8 @@ export function proxy(req: NextRequest) {
   const headers = new Headers(req.headers)
   headers.set('x-path', pathname + search)
   headers.set('x-nonce', nonce)
+  const ip = clientIp(req.headers)
+  headers.set('x-client-ip', ip === 'direct' ? '127.0.0.1' : ip)
   headers.set('content-security-policy', csp)
 
   let newGuest: string | undefined
@@ -65,7 +68,7 @@ export function proxy(req: NextRequest) {
       maxAge: 60 * 60 * 24 * 365,
     })
   }
-  if (!pathname.startsWith('/api/storage/')) res.headers.set('content-security-policy', csp)
+  res.headers.set('content-security-policy', csp)
   res.headers.set('referrer-policy', 'no-referrer')
   res.headers.set('x-content-type-options', 'nosniff')
   res.headers.set('permissions-policy', 'geolocation=(), microphone=()')
@@ -73,4 +76,5 @@ export function proxy(req: NextRequest) {
   return res
 }
 
-export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'] }
+// Development storage checks its own signatures, and bodies passed through here are cut at 10 MB.
+export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico|api/storage/).*)'] }

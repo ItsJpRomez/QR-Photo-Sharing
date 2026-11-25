@@ -158,6 +158,18 @@ test('closing uploads keeps the photos on the phone until the host reopens', asy
   await expect(guest.getByText('2 photos added')).toBeVisible({ timeout: 40_000 })
 })
 
+test('a photo close to the size limit arrives whole', async ({ page, browser }) => {
+  const { event, guest } = await eventWithGuest(page, browser)
+  await guest.goto(`/e/${event.code}`)
+  const small = await picture(1)
+  // Extra bytes after the picture, as some phones add: 35 MB in all.
+  const buffer = Buffer.concat([small.buffer, Buffer.alloc(35 * 1024 * 1024 - small.buffer.length, 7)])
+  await choose(guest, [{ ...small, buffer }])
+  await guest.getByRole('button', { name: 'Upload 1 photo' }).click()
+  await expect(guest.getByText('1 photo added')).toBeVisible({ timeout: 50_000 })
+  await expect.poll(() => stored(event.id), { timeout: 20_000 }).toBe(1)
+})
+
 test('two tabs of one guest send each photo once', async ({ page, browser }) => {
   const { event, guest } = await eventWithGuest(page, browser)
   await guest.goto(`/e/${event.code}`)

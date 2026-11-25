@@ -1,14 +1,16 @@
 'use client'
 
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 import { cx } from '@/features/ui/cx'
 import { Notice } from '@/features/ui/field'
+import { api } from '@/lib/api'
 import type { HostEventDto } from '@/modules/events/events'
 import { usageLevel } from '@/modules/events/usage'
-import { formatBytes, formatDate } from './format'
-import { useHostEvent } from './queries'
+import { formatBytes, formatDate, plural } from './format'
+import { eventPath, hk, useHostEvent } from './queries'
 
 const TABS = [
   ['', 'Photos'],
@@ -23,6 +25,26 @@ const TABS = [
 function intoView(tab: HTMLAnchorElement | null) {
   const bar = tab?.parentElement
   if (tab && bar) bar.scrollLeft = tab.offsetLeft - (bar.clientWidth - tab.clientWidth) / 2
+}
+
+/** Room held by uploads that never arrived, which the host can take back. */
+function Unfinished({ id }: { id: string }) {
+  const client = useQueryClient()
+  const key = [...hk.event(id), 'unfinished']
+  const { data } = useQuery({ queryKey: key, queryFn: () => api<{ photos: number; bytes: number }>(eventPath(id, '/unfinished')) })
+  const clear = useMutation({
+    mutationFn: () => api(eventPath(id, '/unfinished'), { method: 'DELETE' }),
+    onSettled: () => client.invalidateQueries({ queryKey: hk.event(id) }),
+  })
+  if (!data?.photos) return null
+  return (
+    <span className="mt-2 block">
+      {plural(data.photos, 'unfinished upload')} {data.photos === 1 ? 'is' : 'are'} holding {formatBytes(data.bytes)}.{' '}
+      <button type="button" className="font-semibold underline" disabled={clear.isPending} onClick={() => clear.mutate()}>
+        Clear unfinished uploads
+      </button>
+    </span>
+  )
 }
 
 export function EventShell({ initial, children }: { initial: HostEventDto; children: ReactNode }) {
@@ -41,7 +63,7 @@ export function EventShell({ initial, children }: { initial: HostEventDto; child
       {level !== 'ok' && (
         <Notice tone={level === 'full' ? 'danger' : 'info'}>
           This event is {level === 'full' ? 'full' : 'almost full'}: {event.usedPhotos.toLocaleString('en')} of {event.maxPhotos.toLocaleString('en')} photos,{' '}
-          {formatBytes(event.usedBytes)} of {formatBytes(event.maxBytes)}.
+          {formatBytes(event.usedBytes)} of {formatBytes(event.maxBytes)}. <Unfinished id={event.id} />
         </Notice>
       )}
       {event.frozen && <Notice>Uploads are closed. Guests can look but not add photos, hearts or comments.</Notice>}

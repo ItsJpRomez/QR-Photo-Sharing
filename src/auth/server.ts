@@ -38,7 +38,8 @@ function create() {
     },
     socialProviders: config.google ? { google: config.google } : {},
     rateLimit: { enabled: config.env === 'production' && !config.mail.outboxFile },
-    advanced: { cookiePrefix: 'host' },
+    // Set by our own proxy.ts, which replaces anything a visitor sends.
+    advanced: { cookiePrefix: 'host', ipAddress: { ipAddressHeaders: ['x-client-ip'] } },
     telemetry: { enabled: false },
   })
 }

@@ -3,7 +3,8 @@ import { AppError, type ErrorCode } from '@/lib/errors'
 
 export type Viewer =
   | { kind: 'host'; eventId: string; participantId: string; userId: string }
-  | { kind: 'guest'; eventId: string; participantId: string }
+  /** With a token hash, this guest may not be on record yet. */
+  | { kind: 'guest'; eventId: string; participantId: string; tokenHash?: string }
   /** Hasn't entered the PIN. */
   | { kind: 'locked'; eventId: string }
 

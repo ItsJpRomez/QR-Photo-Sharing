@@ -38,7 +38,7 @@ await boss.work(
 
 await boss.createQueue('cleanup', { retryLimit: 0, policy: 'short' })
 await boss.work('cleanup', { batchSize: 1 }, () => runCleanup(new Date()))
-await boss.schedule('cleanup', '7 * * * *')
+await boss.schedule('cleanup', '*/15 * * * *')
 
 async function beat() {
   const at = new Date()

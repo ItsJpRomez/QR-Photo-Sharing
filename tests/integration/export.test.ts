@@ -192,6 +192,14 @@ describe('the download', () => {
     expect(sha256Hex(joined)).toBe(sha256Hex(whole))
     expect((await fetchPart()).headers.get('content-disposition')).toContain('Ana & Marco photos.zip')
   })
+  test('the link still works after most of a day, for slow connections', async () => {
+    await upload(ana, e, await uniqueJpeg())
+    const { x } = await exported()
+    const url = new URL(await exportDownloadUrl(host, e, x.id))
+    const left = Number(url.searchParams.get('exp')) - Date.now() / 1000
+    expect(left).toBeGreaterThan(22 * 3600)
+    expect(left).toBeLessThanOrEqual(24 * 3600)
+  })
   test('for seven days, then the file is gone', async () => {
     await upload(ana, e, await uniqueJpeg())
     const { x } = await exported()

@@ -57,9 +57,9 @@ export class DiskStorage implements ObjectStorage {
     return { url, headers: { 'content-type': o.contentType } }
   }
 
-  async signGet(key: string, o: { downloadName?: string; now?: Date } = {}) {
+  async signGet(key: string, o: { downloadName?: string; now?: Date; seconds?: number } = {}) {
     this.filePath(key)
-    const exp = hourStart(o.now ?? new Date()).getTime() / 1000 + GET_SECONDS
+    const exp = hourStart(o.now ?? new Date()).getTime() / 1000 + (o.seconds ?? GET_SECONDS)
     return this.url({ method: 'GET', key, exp, name: o.downloadName })
   }
 

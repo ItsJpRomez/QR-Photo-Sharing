@@ -7,6 +7,7 @@ import { AppError } from '@/lib/errors'
 import { hitLimit } from '@/lib/rate-limit'
 import { personName, plainText } from '@/lib/text'
 import { can, requireCan } from '@/modules/access/can'
+import { ensureParticipant } from '@/modules/access/viewer'
 import { publish } from '@/modules/live/publish'
 import { visiblePhoto, type Unlocked } from '@/modules/photos/query'
 
@@ -44,6 +45,7 @@ export async function addComment(viewer: Unlocked, event: EventRow, photoId: str
   if (viewer.kind === 'guest' && !(await hitLimit(`comment:${viewer.participantId}`, config.limits.commentsPerMinute, 60)))
     throw new AppError('rate_limited')
   return withTx(async (tx) => {
+    await ensureParticipant(tx, viewer, event)
     const me = eq(participants.id, viewer.participantId)
     if (input.name) await tx.update(participants).set({ name: input.name }).where(me)
     const [author] = await tx.select({ name: participants.name }).from(participants).where(me)

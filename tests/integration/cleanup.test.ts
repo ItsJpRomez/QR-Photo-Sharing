@@ -35,14 +35,14 @@ const code = (x: Promise<unknown>) => x.then(() => 'ok', (err: { code: string })
 const guestReq = (token: string) => ({ headers: new Headers({ cookie: `qg=${token}` }) })
 
 describe('unfinished uploads', () => {
-  test('are let go after a day, and can be taken up again', async () => {
+  test('are let go after an hour, and can be taken up again', async () => {
     const buf = await uniqueJpeg()
     const clientId = crypto.randomUUID()
     const r = await reserve(ana, e, buf, { clientId })
     await storage.put(keys.incoming(e.id, r.photoId), buf, 'image/jpeg')
-    await runCleanup(later(23 * HOUR))
+    await runCleanup(later(0.9 * HOUR))
     expect((await photoRow(r.photoId)).status).toBe('reserved')
-    await runCleanup(later(25 * HOUR))
+    await runCleanup(later(1.1 * HOUR))
     expect((await photoRow(r.photoId)).status).toBe('expired')
     expect(await fresh(e)).toMatchObject({ usedPhotos: 0, usedBytes: 0 })
     expect(await storage.head(keys.incoming(e.id, r.photoId))).toBeNull()

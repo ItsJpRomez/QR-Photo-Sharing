@@ -14,6 +14,11 @@ test('the upload signature covers the exact size and type', async () => {
   expect(url).not.toMatch(/checksum/i)
 })
 
+test('an export link lasts a day, so a slow download can resume', async () => {
+  const u = new URL(await s.signGet('ev/1/export/2.zip', { downloadName: 'a.zip', seconds: 86_400 }))
+  expect(u.searchParams.get('X-Amz-Expires')).toBe('86400')
+})
+
 test('read links repeat within the hour and last two', async () => {
   const at = (t: string) => s.signGet('ev/1/thumb/2.webp', { now: new Date(`2026-06-12T${t}:00Z`) })
   expect(await at('10:05')).toBe(await at('10:55'))

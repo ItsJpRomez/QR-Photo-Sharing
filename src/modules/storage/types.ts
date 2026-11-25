@@ -3,8 +3,8 @@ import type { Readable } from 'node:stream'
 export interface ObjectStorage {
   /** A link that accepts one upload of exactly `size` bytes, for 15 minutes. */
   signPut(o: { key: string; size: number; contentType: string }): Promise<{ url: string; headers: Record<string, string> }>
-  /** A read link. Identical for the whole hour so browsers can cache it; dead within two. */
-  signGet(key: string, o?: { downloadName?: string; now?: Date }): Promise<string>
+  /** A read link. Identical for the whole hour so browsers can cache it; dead within two, unless `seconds` says otherwise. */
+  signGet(key: string, o?: { downloadName?: string; now?: Date; seconds?: number }): Promise<string>
   head(key: string): Promise<{ size: number } | null>
   read(key: string): Promise<Buffer>
   readStream(key: string): Promise<Readable>

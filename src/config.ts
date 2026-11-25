@@ -24,7 +24,7 @@ const schema = z.object({
   MAIL_OUTBOX_FILE: optional,
   GOOGLE_CLIENT_ID: optional,
   GOOGLE_CLIENT_SECRET: optional,
-  TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
+  TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).optional(),
   REPORT_EMAIL: optional,
   /** Lets the production build run locally against disk storage for browser tests. */
   ALLOW_LOCAL_DRIVERS: optional,
@@ -50,6 +50,10 @@ export type Config = {
     photosPerGuest: number
     reservationsPerMinute: number
     commentsPerMinute: number
+    /** Started but not finished, at one time. */
+    openPerGuest: number
+    openPhotosPerAddress: number
+    openBytesPerAddress: number
     maxPhotoBytes: number
     maxPixels: number
   }
@@ -92,6 +96,9 @@ export function parseConfig(env: Record<string, string | undefined>): Config {
 
   if (!local && !e.SMTP_URL) throw new Error('Invalid configuration. SMTP_URL is required in production.')
 
+  // Guessing wrong would make every guest share one PIN limit, or let them fake their address.
+  if (!local && e.TRUSTED_PROXY_HOPS === undefined) throw new Error('Invalid configuration. TRUSTED_PROXY_HOPS is required in production.')
+
   const appName = e.APP_NAME ?? 'Event Photos'
   return {
     env: e.NODE_ENV,
@@ -109,7 +116,7 @@ export function parseConfig(env: Record<string, string | undefined>): Config {
       e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET
         ? { clientId: e.GOOGLE_CLIENT_ID, clientSecret: e.GOOGLE_CLIENT_SECRET }
         : undefined,
-    trustedProxyHops: e.TRUSTED_PROXY_HOPS,
+    trustedProxyHops: e.TRUSTED_PROXY_HOPS ?? 0,
     reportEmail: e.REPORT_EMAIL ?? 'report@localhost',
     limits: {
       photosPerEvent: 5000,
@@ -118,6 +125,9 @@ export function parseConfig(env: Record<string, string | undefined>): Config {
       photosPerGuest: 500,
       reservationsPerMinute: 60,
       commentsPerMinute: 10,
+      openPerGuest: 10,
+      openPhotosPerAddress: 600,
+      openBytesPerAddress: 4 * GB,
       maxPhotoBytes: 40 * MB,
       maxPixels: 100_000_000,
     },

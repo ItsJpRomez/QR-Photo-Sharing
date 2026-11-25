@@ -6,7 +6,7 @@ import * as session from '@/auth/session'
 import { db } from '@/db/client'
 import { events, participants } from '@/db/schema'
 import { newToken, sha256Hex } from '@/lib/ids'
-import { resolveViewer } from '@/modules/access/viewer'
+import { ensureParticipant, resolveViewer } from '@/modules/access/viewer'
 import { setPin } from '@/modules/events/pin'
 import { resetDb } from '../helpers/db'
 import { makeEvent, makeGuest, makeUser } from '../helpers/factory'
@@ -22,30 +22,36 @@ const signedInAs = (u: { id: string; email: string; name: string }) =>
   vi.spyOn(session, 'getUser').mockResolvedValue({ ...u, emailVerified: true })
 
 describe('resolveViewer', () => {
-  test('a new guest gets one participant, and keeps it', async () => {
+  test('looking leaves nothing behind, however many visitors; the same guest is always the same', async () => {
     const e = await makeEvent()
     const token = newToken()
     const a = await resolveViewer({ code: e.code }, req(token))
     const b = await resolveViewer({ code: e.code }, req(token))
+    const other = await resolveViewer({ code: e.code }, req(newToken()))
+    const elsewhere = await resolveViewer({ code: (await makeEvent()).code }, req(token))
     expect(a.viewer).toMatchObject({ kind: 'guest', eventId: e.id })
     expect(b.viewer).toEqual(a.viewer)
-    expect(await db.select().from(participants)).toHaveLength(1)
+    expect(new Set([a, other, elsewhere].map((r) => (r.viewer as { participantId: string }).participantId)).size).toBe(3)
+    expect(await db.select().from(participants)).toHaveLength(0)
+  })
+
+  test('doing something makes one record, also when everything happens at once', async () => {
+    const e = await makeEvent()
+    const { viewer } = await resolveViewer({ code: e.code }, req(newToken()))
+    if (viewer.kind !== 'guest') throw new Error('expected a guest')
+    await Promise.all(Array.from({ length: 8 }, () => ensureParticipant(db, viewer, e)))
+    const rows = await db.select().from(participants)
+    expect(rows).toMatchObject([{ id: viewer.participantId, eventId: e.id, pinVersion: e.pinVersion }])
   })
 
   test('only a hash of the token is kept', async () => {
     const e = await makeEvent()
     const token = newToken()
-    await resolveViewer({ code: e.code }, req(token))
+    const { viewer } = await resolveViewer({ code: e.code }, req(token))
+    if (viewer.kind === 'guest') await ensureParticipant(db, viewer, e)
     const [p] = await db.select().from(participants)
     expect(p!.tokenHash).toBe(sha256Hex(token))
     expect(JSON.stringify(p)).not.toContain(token)
-  })
-
-  test('arriving twice at once still makes one participant', async () => {
-    const e = await makeEvent()
-    const token = newToken()
-    await Promise.all(Array.from({ length: 10 }, () => resolveViewer({ code: e.code }, req(token))))
-    expect(await db.select().from(participants)).toHaveLength(1)
   })
 
   test('the owner is the host; another signed-in host is a guest', async () => {
@@ -111,6 +117,9 @@ describe('PATCH my name', () => {
     expect((await patch(e.code, g.token, '  Ana  ')).status).toBe(200)
     const [p] = await db.select().from(participants).where(eq(participants.id, g.id))
     expect(p!.name).toBe('Ana')
+    const first = newToken()
+    expect((await patch(e.code, first, 'New here')).status).toBe(200)
+    expect((await db.select().from(participants)).map((x) => x.name)).toContain('New here')
     expect((await patch(e.code, g.token, 'x'.repeat(41))).status).toBe(400)
     expect((await patch(e.code, g.token, '👨‍👩‍👧'.repeat(13))).status).toBe(200)
     expect((await patch(e.code, g.token, 5)).status).toBe(400)

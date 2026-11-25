@@ -7,7 +7,7 @@ import { events, hashtags, participants, photoContributors, photoHashtags, photo
 import { createAlbum, deleteAlbum } from '@/modules/events/albums'
 import { blockTag, suggestTag } from '@/modules/events/tags'
 import { expireReservation } from '@/modules/photos/uploads'
-import { completeUpload, uploadStates } from '@/modules/photos/uploads'
+import { clearUnfinished, completeUpload, reserveUpload, unfinishedUploads, uploadStates } from '@/modules/photos/uploads'
 import { keys, storage } from '@/modules/storage'
 import { resetDb } from '../helpers/db'
 import { makeEvent, makeGuest, makePhoto } from '../helpers/factory'
@@ -77,7 +77,8 @@ describe('reserving', () => {
 
   test('room for five of twenty arriving together', async () => {
     await db.update(events).set({ maxPhotos: 5 }).where(eq(events.id, e.id))
-    const results = await Promise.all(Array.from({ length: 20 }, () => code(reserve(guest, e, buf))))
+    const many = await Promise.all(Array.from({ length: 20 }, async () => asGuest(e.id, (await makeGuest(e.id)).id)))
+    const results = await Promise.all(many.map((g) => code(reserve(g, e, buf))))
     expect(results.filter((r) => r === 'ok')).toHaveLength(5)
     expect(results.filter((r) => r === 'gallery_full')).toHaveLength(15)
     expect(await usage()).toEqual([5, buf.length * 5])
@@ -107,7 +108,10 @@ describe('reserving', () => {
 
   test('the 61st in a minute is refused', async () => {
     const results: string[] = []
-    for (let i = 0; i < 61; i++) results.push(await code(reserve(guest, e, buf)))
+    for (let i = 0; i < 61; i++) {
+      results.push(await code(reserve(guest, e, buf)))
+      await db.update(photos).set({ status: 'live' }) // as if each finished
+    }
     expect(results.filter((r) => r === 'ok').length).toBeGreaterThanOrEqual(60) // a minute may turn over mid-test
     const second = asGuest(e.id, (await makeGuest(e.id)).id)
     const burst = await Promise.all(Array.from({ length: 75 }, () => code(reserve(second, e, buf))))
@@ -137,6 +141,49 @@ describe('reserving', () => {
   test('an odd file type is sent as plain bytes, never as a page', async () => {
     const r = await reserve(guest, e, buf, { mime: 'text/html' })
     expect(r.put!.headers['content-type']).toBe('application/octet-stream')
+  })
+})
+
+describe('reservations nobody uses', () => {
+  const big = 40 * 1024 * 1024
+  test('a guest may hold ten at a time; finishing one makes room', async () => {
+    const made: string[] = []
+    for (let i = 0; i < 10; i++) made.push((await reserve(guest, e, buf)).photoId)
+    expect(await code(reserve(guest, e, buf))).toBe('rate_limited')
+    await storage.put(keys.incoming(e.id, made[0]!), buf, 'image/jpeg')
+    await completeUpload(guest, e, made[0]!)
+    expect(await code(reserve(guest, e, buf))).toBe('ok')
+    expect((await fresh(e)).usedPhotos).toBe(11)
+  })
+  test('new cookies from one address cannot fill an event', async () => {
+    const results: string[] = []
+    for (let i = 0; i < 12; i++) {
+      const g = asGuest(e.id, (await makeGuest(e.id)).id)
+      for (let n = 0; n < 10; n++) results.push(await code(reserveUpload(g, e, { clientId: crypto.randomUUID(), size: big, mime: 'image/jpeg' }, '9.9.9.9')))
+    }
+    expect(results).toContain('rate_limited')
+    expect((await fresh(e)).usedBytes).toBeLessThanOrEqual(4 * 1024 ** 3)
+    const elsewhere = asGuest(e.id, (await makeGuest(e.id)).id)
+    expect(await code(reserveUpload(elsewhere, e, { clientId: crypto.randomUUID(), size: big, mime: 'image/jpeg' }, '8.8.8.8'))).toBe('ok')
+  })
+  test('two hundred guests sending two normal photos each from one venue are fine', async () => {
+    const all = await Promise.all(Array.from({ length: 200 }, async () => asGuest(e.id, (await makeGuest(e.id)).id)))
+    const results = await Promise.all(all.flatMap((g) => [1, 2].map(() => code(reserveUpload(g, e, { clientId: crypto.randomUUID(), size: 8_000_000, mime: 'image/jpeg' }, '9.9.9.9')))))
+    expect(new Set(results)).toEqual(new Set(['ok']))
+  })
+  test('the address itself is not kept', async () => {
+    await reserveUpload(guest, e, { clientId: crypto.randomUUID(), size: 10, mime: 'image/jpeg' }, '9.9.9.9')
+    expect(JSON.stringify(await db.select().from(photos))).not.toContain('9.9.9.9')
+  })
+  test('the host sees them and can clear the ones that are not moving', async () => {
+    const old = await reserve(guest, e, buf)
+    await db.update(photos).set({ reservedAt: new Date(Date.now() - 10 * 60_000) })
+    const recent = await reserve(guest, e, buf)
+    expect(await unfinishedUploads(e.id)).toEqual({ photos: 2, bytes: buf.length * 2 })
+    expect(await clearUnfinished(e.id)).toEqual({ cleared: 1 })
+    expect((await photoRow(old.photoId)).status).toBe('expired')
+    expect((await photoRow(recent.photoId)).status).toBe('reserved')
+    expect((await fresh(e)).usedPhotos).toBe(1)
   })
 })
 

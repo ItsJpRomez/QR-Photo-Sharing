@@ -1,13 +1,15 @@
-import { and, count, eq, inArray, sql } from 'drizzle-orm'
+import { and, count, eq, inArray, lt, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { config } from '@/config'
 import { db, withTx, type Tx } from '@/db/client'
 import { events, participants, photoContributors, photos, type EventRow, type PhotoRow } from '@/db/schema'
 import { enqueue } from '@/jobs/boss'
 import { AppError } from '@/lib/errors'
+import { hmacHex } from '@/lib/ids'
 import { hitLimit } from '@/lib/rate-limit'
 import { personName } from '@/lib/text'
 import { requireCan, type Viewer } from '@/modules/access/can'
+import { ensureParticipant } from '@/modules/access/viewer'
 import { ownAlbumId } from '@/modules/events/albums'
 import { attachTags } from '@/modules/events/tags'
 import { parseTags } from '@/modules/events/tag-text'
@@ -101,7 +103,7 @@ function requireUploadOrGrace(viewer: Viewer, event: EventRow, photo: PhotoRow, 
 }
 
 /** Takes room for one photo, or refuses. Holding the event row also makes the checks below exact. */
-async function takeRoom(tx: Tx, viewer: Unlocked, eventId: string, size: number): Promise<void> {
+async function takeRoom(tx: Tx, viewer: Unlocked, eventId: string, size: number, from: string | null): Promise<void> {
   const [event] = await tx
     .update(events)
     .set({ usedPhotos: sql`${events.usedPhotos} + 1`, usedBytes: sql`${events.usedBytes} + ${size}` })
@@ -122,6 +124,24 @@ async function takeRoom(tx: Tx, viewer: Unlocked, eventId: string, size: number)
     .from(photos)
     .where(and(eq(photos.eventId, eventId), eq(photos.participantId, viewer.participantId), inArray(photos.status, COUNTED)))
   if ((mine?.n ?? 0) >= config.limits.photosPerGuest) throw new AppError('guest_limit')
+  await limitOpen(tx, viewer, eventId, size, from)
+}
+
+/**
+ * Reserving is free and cookies are too, so without this someone with the link
+ * could fill the event without sending a byte. Finished uploads don't count.
+ */
+async function limitOpen(tx: Tx, viewer: Unlocked, eventId: string, size: number, from: string | null): Promise<void> {
+  const { openPerGuest, openPhotosPerAddress, openBytesPerAddress } = config.limits
+  const open = and(eq(photos.eventId, eventId), eq(photos.status, 'reserved'))
+  const [mine] = await tx.select({ n: count() }).from(photos).where(and(open, eq(photos.participantId, viewer.participantId)))
+  if ((mine?.n ?? 0) >= openPerGuest) throw new AppError('rate_limited')
+  if (!from) return
+  const [here] = await tx
+    .select({ n: count(), bytes: sql<string>`coalesce(sum(${photos.sizeBytes}), 0)` })
+    .from(photos)
+    .where(and(open, eq(photos.reservedFrom, from)))
+  if ((here?.n ?? 0) >= openPhotosPerAddress || Number(here?.bytes ?? 0) + size > openBytesPerAddress) throw new AppError('rate_limited')
 }
 
 async function findByClientId(eventId: string, clientId: string): Promise<PhotoRow | undefined> {
@@ -133,7 +153,7 @@ async function findByClientId(eventId: string, clientId: string): Promise<PhotoR
 }
 
 /** The phone asked before under this id: carry on from wherever that got to. */
-async function resume(viewer: Unlocked, event: EventRow, photo: PhotoRow, size: number): Promise<Reservation> {
+async function resume(viewer: Unlocked, event: EventRow, photo: PhotoRow, size: number, from: string | null): Promise<Reservation> {
   if (photo.participantId !== viewer.participantId || photo.sizeBytes !== size) throw new AppError('conflict')
   if (photo.status === 'reserved') {
     requireUploadOrGrace(viewer, event, photo, new Date())
@@ -144,9 +164,10 @@ async function resume(viewer: Unlocked, event: EventRow, photo: PhotoRow, size: 
 
   requireCan(viewer, 'photo.upload', { event })
   await withTx(async (tx) => {
-    await takeRoom(tx, viewer, event.id, size)
+    await takeRoom(tx, viewer, event.id, size, from)
     const taken = await transition(tx, photo.id, [photo.status], 'reserved', {
       reservedAt: new Date(),
+      reservedFrom: from,
       uploadedAt: null,
       failureCode: null,
       sha256: null,
@@ -156,12 +177,14 @@ async function resume(viewer: Unlocked, event: EventRow, photo: PhotoRow, size: 
   return describe(viewer, (await findByClientId(event.id, photo.clientId))!)
 }
 
-export async function reserveUpload(viewer: Unlocked, event: EventRow, raw: ReserveInput): Promise<Reservation> {
+/** `ip` is used only to limit unfinished uploads, and only a hash of it is kept. */
+export async function reserveUpload(viewer: Unlocked, event: EventRow, raw: ReserveInput, ip = 'direct'): Promise<Reservation> {
   const input = reserveInput.parse(raw)
+  const from = ip === 'direct' ? null : hmacHex(`upload-from:${event.id}:${ip}`)
   if (input.size > config.limits.maxPhotoBytes) throw new AppError('too_large')
 
   const known = await findByClientId(event.id, input.clientId)
-  if (known) return resume(viewer, event, known, input.size)
+  if (known) return resume(viewer, event, known, input.size, from)
 
   requireCan(viewer, 'photo.upload', { event })
   const { reservationsPerMinute } = config.limits
@@ -169,7 +192,8 @@ export async function reserveUpload(viewer: Unlocked, event: EventRow, raw: Rese
     throw new AppError('rate_limited')
 
   const created = await withTx(async (tx) => {
-    await takeRoom(tx, viewer, event.id, input.size)
+    await ensureParticipant(tx, viewer, event)
+    await takeRoom(tx, viewer, event.id, input.size, from)
     const [photo] = await tx
       .insert(photos)
       .values({
@@ -177,6 +201,7 @@ export async function reserveUpload(viewer: Unlocked, event: EventRow, raw: Rese
         participantId: viewer.participantId,
         clientId: input.clientId,
         sizeBytes: input.size,
+        reservedFrom: from,
         mime: uploadType(input.mime),
         // An album deleted while this photo was queued must not cost the guest the photo.
         albumId: await ownAlbumId(tx, event.id, input.albumId),
@@ -191,7 +216,7 @@ export async function reserveUpload(viewer: Unlocked, event: EventRow, raw: Rese
   }).catch(async (err: unknown) => {
     // The same request arrived twice at once, and the other one won.
     const other = await findByClientId(event.id, input.clientId)
-    if (other) return resume(viewer, event, other, input.size)
+    if (other) return resume(viewer, event, other, input.size, from)
     throw err
   })
   return 'photoId' in created ? created : describe(viewer, created)
@@ -214,7 +239,7 @@ export async function completeUpload(viewer: Unlocked, event: EventRow, photoId:
   const file = await storage.head(keys.incoming(event.id, photo.id))
   if (file?.size !== photo.sizeBytes) throw new AppError('bad_input', "The photo didn't arrive in full. Please try again.")
   await withTx(async (tx) => {
-    if (await transition(tx, photo.id, ['reserved'], 'uploaded', { uploadedAt: now })) {
+    if (await transition(tx, photo.id, ['reserved'], 'uploaded', { uploadedAt: now, reservedFrom: null })) {
       await enqueue(tx, 'photo.process', { photoId: photo.id })
       await publish(tx, { eventId: event.id, type: 'photos', ids: [photo.id], audience: [viewer.participantId] })
     }
@@ -254,4 +279,27 @@ export async function expireReservation(photoId: string): Promise<void> {
     return photo
   })
   if (expired) await storage.delete([keys.incoming(expired.eventId, expired.id)])
+}
+
+const open = (eventId: string) => and(eq(photos.eventId, eventId), eq(photos.status, 'reserved'))
+
+/** Room held by uploads that started but haven't arrived. */
+export async function unfinishedUploads(eventId: string): Promise<{ photos: number; bytes: number }> {
+  const [row] = await db
+    .select({ photos: count(), bytes: sql<string>`coalesce(sum(${photos.sizeBytes}), 0)` })
+    .from(photos)
+    .where(open(eventId))
+  return { photos: row?.photos ?? 0, bytes: Number(row?.bytes ?? 0) }
+}
+
+const MOVING_MS = 2 * 60_000
+
+/** Lets the host take that room back. A phone that is still trying simply asks again. */
+export async function clearUnfinished(eventId: string): Promise<{ cleared: number }> {
+  const still = await db
+    .select({ id: photos.id })
+    .from(photos)
+    .where(and(open(eventId), lt(photos.reservedAt, new Date(Date.now() - MOVING_MS))))
+  for (const p of still) await expireReservation(p.id)
+  return { cleared: still.length }
 }

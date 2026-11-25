@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { describe, expect, test } from 'vitest'
-import { proxy } from '@/proxy'
+import { getAuth } from '@/auth/server'
+import { config as proxyConfig, proxy } from '@/proxy'
 
 const call = (path: string, init: { method?: string; headers?: Record<string, string> } = {}) =>
   proxy(new NextRequest(`http://localhost:3000${path}`, init))
@@ -37,6 +38,23 @@ describe('the guest cookie', () => {
     expect(cookie(call('/e/a', { headers: { cookie: 'qg=short' } }))).toBeDefined()
   })
   test('is not set elsewhere', () => expect(cookie(call('/sign-in'))).toBeUndefined())
+})
+
+describe('the visitor’s address', () => {
+  test('is ours to say, whatever the visitor sends', () => {
+    const res = call('/sign-in', { headers: { 'x-client-ip': '6.6.6.6', 'x-forwarded-for': '1.2.3.4, 10.0.0.1' } })
+    expect(res.headers.get('x-middleware-request-x-client-ip')).not.toBe('6.6.6.6')
+    expect(res.headers.get('x-middleware-request-x-client-ip')).toBeTruthy()
+  })
+  test('is what host sign-in limits go by', () => {
+    expect(getAuth().options.advanced.ipAddress.ipAddressHeaders).toEqual(['x-client-ip'])
+  })
+  test('large local uploads are not passed through here, where they would be cut short', () => {
+    const [matcher] = proxyConfig.matcher
+    expect(new RegExp(`^${matcher}$`).test('/api/storage/ev/1/incoming/2')).toBe(false)
+    expect(new RegExp(`^${matcher}$`).test('/api/e/abc/uploads')).toBe(true)
+    expect(new RegExp(`^${matcher}$`).test('/')).toBe(true)
+  })
 })
 
 describe('headers', () => {

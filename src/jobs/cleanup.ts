@@ -10,11 +10,12 @@ const HOUR = 3600_000
 const DAY = 24 * HOUR
 export const UNDO_MS = 7 * DAY
 
+/** Upload links last 15 minutes, so after an hour nothing is coming. A phone that returns reserves again. */
 async function unfinishedUploads(now: Date): Promise<void> {
   const old = await db
     .select({ id: photos.id })
     .from(photos)
-    .where(and(eq(photos.status, 'reserved'), lt(photos.reservedAt, new Date(now.getTime() - DAY))))
+    .where(and(eq(photos.status, 'reserved'), lt(photos.reservedAt, new Date(now.getTime() - HOUR))))
   for (const p of old) await expireReservation(p.id)
 }
 

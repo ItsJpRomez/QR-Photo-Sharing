@@ -1,13 +1,13 @@
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import { user } from '@/db/auth-schema'
 import { db, type Executor } from '@/db/client'
-import { events, participants, type EventRow } from '@/db/schema'
+import { events, type EventRow } from '@/db/schema'
 import { AppError } from '@/lib/errors'
 import { hmacHex, safeEqual } from '@/lib/ids'
 import { sendMail } from '@/lib/mail'
 import { countHit, hitLimit, refundHit } from '@/lib/rate-limit'
 import { publish } from '@/modules/live/publish'
-import { guestParticipant } from '@/modules/access/viewer'
+import { unlockGuest } from '@/modules/access/viewer'
 
 export const PIN_FORMAT = /^[0-9]{4}$/
 
@@ -79,6 +79,5 @@ export async function tryPin(event: EventRow, guestTokenHash: string, ip: string
 
   await refundHit(guestKey, QUARTER_HOUR)
   await refundHit(ipKey, HOUR)
-  const me = await guestParticipant(event.id, guestTokenHash, event.pinVersion)
-  await db.update(participants).set({ pinVersion: event.pinVersion }).where(eq(participants.id, me.id))
+  await unlockGuest(event.id, guestTokenHash, event.pinVersion)
 }

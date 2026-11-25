@@ -27,6 +27,8 @@ export type ExportDto = {
 }
 
 const WEEK_MS = 7 * 24 * 3600_000
+/** Long enough to finish, and resume, on a slow connection. */
+const LINK_SECONDS = 24 * 3600
 const PROGRESS_MS = 1000
 
 export function toDto(x: ExportRow): ExportDto {
@@ -223,7 +225,10 @@ export async function exportDownloadUrl(viewer: Viewer, event: EventRow, exportI
     .from(exports)
     .where(and(eq(exports.id, exportId), eq(exports.eventId, event.id), eq(exports.status, 'ready')))
   if (!x?.expiresAt || x.expiresAt <= new Date()) throw new AppError('not_found')
-  return storage.signGet(keys.export(event.id, exportId), { downloadName: `${safeFileName(event.name)} photos.zip` })
+  return storage.signGet(keys.export(event.id, exportId), {
+    downloadName: `${safeFileName(event.name)} photos.zip`,
+    seconds: LINK_SECONDS,
+  })
 }
 
 /** Removes archives whose week is over. */

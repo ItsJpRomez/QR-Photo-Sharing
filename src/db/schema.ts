@@ -142,6 +142,8 @@ export const photos = pgTable(
     height: integer('height'),
     thumbhash: text('thumbhash'),
     takenAt: at('taken_at'),
+    /** A keyed hash of the sender's address, while unfinished. */
+    reservedFrom: text('reserved_from'),
     reservedAt: at('reserved_at').notNull().defaultNow(),
     uploadedAt: at('uploaded_at'),
     publishedAt: at('published_at'),

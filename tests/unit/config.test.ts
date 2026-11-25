@@ -40,6 +40,14 @@ describe('parseConfig', () => {
     ).toThrow(/SMTP_URL/)
   })
 
+  test('in production, how many proxies there are must be said, not guessed', () => {
+    const live = { ...good, NODE_ENV: 'production', APP_URL: 'https://photos.test', STORAGE_DRIVER: 's3', S3_ENDPOINT: 'https://r2.test', S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'a', S3_SECRET_ACCESS_KEY: 's', SMTP_URL: 'smtp://x' }
+    expect(() => parseConfig(live)).toThrow(/TRUSTED_PROXY_HOPS/)
+    expect(parseConfig({ ...live, TRUSTED_PROXY_HOPS: '1' }).trustedProxyHops).toBe(1)
+    expect(parseConfig({ ...live, TRUSTED_PROXY_HOPS: '0' }).trustedProxyHops).toBe(0)
+    expect(parseConfig(good).trustedProxyHops).toBe(0)
+  })
+
   test('defaults the name and limits from the spec', () => {
     const c = parseConfig(good)
     expect(c.appName).toBe('Event Photos')

@@ -42,13 +42,13 @@ export class S3Storage implements ObjectStorage {
     return { url, headers: { 'content-type': o.contentType } }
   }
 
-  async signGet(key: string, o: { downloadName?: string; now?: Date } = {}) {
+  async signGet(key: string, o: { downloadName?: string; now?: Date; seconds?: number } = {}) {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
       ResponseContentDisposition: o.downloadName === undefined ? undefined : attachment(o.downloadName),
     })
-    return getSignedUrl(this.client, command, { expiresIn: GET_SECONDS, signingDate: hourStart(o.now ?? new Date()) })
+    return getSignedUrl(this.client, command, { expiresIn: o.seconds ?? GET_SECONDS, signingDate: hourStart(o.now ?? new Date()) })
   }
 
   async head(key: string) {
