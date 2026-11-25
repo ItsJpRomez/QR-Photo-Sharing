@@ -5,7 +5,7 @@ import { LeaseLock, WebLock } from './lock'
 import { UploadQueue } from './queue'
 import { IdbStore } from './store'
 import { httpTransport } from './transport'
-import type { Channel, Clock, QueueItem } from './types'
+import type { Channel, Clock, QueueItem, TabMessage } from './types'
 
 const clock: Clock = {
   now: () => Date.now(),
@@ -19,9 +19,9 @@ function tabChannel(): Channel {
   if (typeof BroadcastChannel === 'undefined') return { post: () => {}, listen: () => () => {} }
   const bus = new BroadcastChannel('upload-queue')
   return {
-    post: (done) => bus.postMessage(done),
+    post: (message) => bus.postMessage(message),
     listen: (fn) => {
-      const on = (e: MessageEvent<QueueItem[]>) => fn(e.data)
+      const on = (e: MessageEvent<TabMessage>) => fn(e.data)
       bus.addEventListener('message', on)
       return () => bus.removeEventListener('message', on)
     },
@@ -42,6 +42,7 @@ export function getQueue(): UploadQueue {
       transport: httpTransport,
       random: Math.random,
       online: () => navigator.onLine,
+      visible: () => document.visibilityState === 'visible',
       channel: tabChannel(),
     })
   }
@@ -64,7 +65,11 @@ export function useRunQueue(): void {
     const q = getQueue()
     q.start()
     const nudge = () => q.nudge()
-    const ifVisible = () => document.visibilityState === 'visible' && q.nudge()
+    const ifVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      q.comeToFront()
+      q.nudge()
+    }
     const warn = (e: BeforeUnloadEvent) => {
       if (q.isSaving() || q.items().some((i) => !i.persisted && !i.settled && i.state !== 'failed')) e.preventDefault()
     }

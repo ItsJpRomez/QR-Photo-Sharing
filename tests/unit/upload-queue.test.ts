@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { LeaseLock } from '@/features/upload-queue/lock'
 import { UploadQueue, type QueueOptions } from '@/features/upload-queue/queue'
 import { IdbStore } from '@/features/upload-queue/store'
-import { TransportError, type Channel, type Clock, type LeaderLock, type QueueItem, type Reserved, type Transport, type UploadState } from '@/features/upload-queue/types'
+import { TransportError, type Channel, type Clock, type LeaderLock, type QueueItem, type Reserved, type TabMessage, type Transport, type UploadState } from '@/features/upload-queue/types'
 
 const META = { albumId: null, tags: [] }
 const TO = { eventId: 'E', code: 'CODE' }
@@ -102,22 +102,51 @@ class FakeServer implements Transport {
   }
 }
 
-const freeLock: LeaderLock = { request: (held) => (held(), () => {}) }
+const freeLock: LeaderLock = { request: (held) => (held(), { release: () => {}, steal: () => {} }) }
+
+/** Works like the browser's lock: one holder, others wait in line, and it can be taken. */
+class SharedLock {
+  private line: { held: () => void; lost: () => void }[] = []
+  tab(): LeaderLock {
+    return {
+      request: (held, lost = () => {}) => {
+        const me = { held, lost }
+        this.line.push(me)
+        if (this.line.length === 1) held()
+        const leave = () => {
+          const first = this.line[0] === me
+          this.line = this.line.filter((x) => x !== me)
+          if (first) this.line[0]?.held()
+        }
+        return {
+          release: leave,
+          steal: () => {
+            if (this.line[0] === me) return
+            const old = this.line.shift()
+            this.line = [me, ...this.line.filter((x) => x !== me)]
+            old?.lost()
+            held()
+          },
+        }
+      },
+    }
+  }
+}
 
 let clock: TestClock
 let server: FakeServer
 let store: IdbStore
 let online: boolean
-let bus: Set<(done: QueueItem[]) => void>
+let bus: Set<(m: TabMessage) => void>
 const channel = (): Channel => {
-  const mine = new Set<(done: QueueItem[]) => void>()
+  const mine = new Set<(m: TabMessage) => void>()
   return {
-    post: (done) => [...bus].filter((f) => !mine.has(f)).forEach((f) => f(done)),
+    post: (m) => [...bus].filter((f) => !mine.has(f)).forEach((f) => f(m)),
     listen: (fn) => (mine.add(fn), bus.add(fn), () => bus.delete(fn)),
   }
 }
 const make = (over: Partial<QueueOptions> = {}) =>
-  new UploadQueue({ store, transport: server, clock, random: () => 0.5, online: () => online, lock: freeLock, channel: channel(), ...over })
+  new UploadQueue({ store, transport: server, clock, random: () => 0.5, online: () => online, visible: () => true, lock: freeLock, channel: channel(), ...over })
 const states = (q: UploadQueue) => q.items().map((i) => i.state)
 
 beforeEach(() => {
@@ -505,6 +534,161 @@ test('saving many photos reports progress, so the page can ask not to be closed 
     [3, true],
   ])
   expect(q.isSaving()).toBe(false)
+})
+
+describe('what is done in one tab counts in all', () => {
+  let lock: SharedLock
+  let front: 'a' | 'b'
+  const tab = (id: 'a' | 'b', over: Partial<QueueOptions> = {}) => make({ lock: lock.tab(), channel: channel(), visible: () => front === id, ...over })
+  beforeEach(() => {
+    lock = new SharedLock()
+    front = 'a'
+  })
+
+  test.each([
+    ['pin_required', 401, 'CODE'],
+    ['not_found', 404, 'NEWCODE'],
+  ])('%s: entering in the second tab lets the first one carry on', async (error, status, code) => {
+    let shut = true
+    server.failReserve = (i) => (shut || i.code !== code ? new TransportError(error, status) : undefined)
+    const a = tab('a')
+    const b = tab('b')
+    a.start()
+    await settle()
+    b.start()
+    await settle()
+    await a.add([file()], TO, META)
+    await clock.advance(5000)
+    expect(states(a)).toEqual(['needs_access'])
+    shut = false
+    b.resumeAccess('E', code)
+    await clock.advance(20_000)
+    expect(states(a)).toEqual(['added'])
+    expect(states(b)).toEqual(['added'])
+    expect([...server.photos.values()].map((p) => p.got)).toEqual([10])
+  })
+
+  test('try again, remove and reopening work from the second tab', async () => {
+    const [a, b] = [tab('a'), tab('b')]
+    a.start()
+    await settle()
+    b.start()
+    await settle()
+    server.failReserve = (i) => (i.fileName === 'full.jpg' ? new TransportError('gallery_full', 409) : i.fileName === 'shut.jpg' ? new TransportError('frozen', 409) : undefined)
+    await a.add([file('full.jpg'), file('shut.jpg')], TO, META)
+    await clock.advance(5000)
+    expect(states(a)).toEqual(['failed', 'closed'])
+    server.failReserve = undefined
+    b.retry(b.items()[0]!.clientId)
+    b.reopen('E')
+    await clock.advance(20_000)
+    expect(states(a)).toEqual(['added', 'added'])
+
+    server.hold = new Promise(() => {})
+    await a.add([file('gone.jpg')], TO, META)
+    await settle()
+    await b.remove(b.items().find((i) => i.fileName === 'gone.jpg')!.clientId)
+    await clock.advance(120_000)
+    expect(a.items().some((i) => i.fileName === 'gone.jpg')).toBe(false)
+    expect(server.log).not.toContain('complete gone.jpg')
+  })
+
+  test('the tab in front does the sending', async () => {
+    const [a, b] = [tab('a'), tab('b')]
+    a.start()
+    await settle()
+    front = 'b'
+    b.start()
+    b.comeToFront()
+    await clock.advance(5000)
+    expect([a.isSender(), b.isSender()]).toEqual([false, true])
+    await b.add([file()], TO, META)
+    await clock.advance(10_000)
+    expect(states(b)).toEqual(['added'])
+    front = 'a'
+    a.comeToFront()
+    await clock.advance(5000)
+    expect([a.isSender(), b.isSender()]).toEqual([true, false])
+  })
+
+  test('a frozen tab that cannot answer is taken over from, and each photo still arrives once', async () => {
+    let frozen = false
+    const deaf: Channel = { post: (m) => !frozen && plain.post(m), listen: (fn) => plain.listen((m) => !frozen && fn(m)) }
+    const plain = channel()
+    const a = make({ lock: lock.tab(), channel: deaf, visible: () => false, clock: { now: clock.now, after: (ms, fn) => clock.after(ms, () => !frozen && fn()) } })
+    const b = tab('b')
+    a.start()
+    await settle()
+    server.hold = new Promise(() => {})
+    await a.add([file()], TO, META)
+    await settle()
+    frozen = true
+    front = 'b'
+    b.start()
+    await settle()
+    server.hold = undefined
+    b.comeToFront()
+    await clock.advance(30_000)
+    expect(b.isSender()).toBe(true)
+    expect(states(b)).toEqual(['added'])
+    expect([...server.photos.values()].map((p) => p.got)).toEqual([10])
+  })
+
+  test('a visible sender is left alone', async () => {
+    const [a, b] = [tab('a'), tab('b')]
+    a.start()
+    await settle()
+    b.start()
+    b.comeToFront()
+    await clock.advance(5000)
+    expect([a.isSender(), b.isSender()]).toEqual([true, false])
+  })
+})
+
+test('older iPhones, without Map.groupBy, hear how a photo ended', async () => {
+  const groupBy = Map.groupBy
+  // @ts-expect-error as it is before iOS 17.4
+  delete Map.groupBy
+  try {
+    const q = make()
+    q.start()
+    server.afterComplete = 'failed'
+    await q.add([file()], TO, META)
+    await clock.advance(20_000)
+    expect(states(q)).toEqual(['failed'])
+  } finally {
+    Map.groupBy = groupBy
+  }
+})
+
+test('a file the phone cannot read says so, instead of blaming the signal', async () => {
+  const q = make()
+  q.start()
+  const bad = file('cloud.jpg')
+  bad.arrayBuffer = async () => {
+    throw new DOMException('gone', 'NotReadableError')
+  }
+  expect(await q.add([bad, file('ok.jpg')], TO, META)).toEqual({ persisted: true })
+  await clock.advance(20_000)
+  expect(q.items().map((i) => [i.fileName, i.state, i.reason])).toEqual([
+    ['cloud.jpg', 'failed', 'unreadable'],
+    ['ok.jpg', 'added', 'live'],
+  ])
+})
+
+test('if the phone closes the storage behind us, it is opened again', async () => {
+  const q = make()
+  q.start()
+  await q.add([file('one.jpg')], TO, META)
+  await clock.advance(10_000)
+  const inside = store as unknown as { db(): Promise<{ close(): void }> }
+  ;(await inside.db()).close() // as the phone does, without telling us
+  await q.add([file('two.jpg')], TO, META)
+  await clock.advance(10_000)
+  expect(q.items().map((i) => [i.state, i.persisted])).toEqual([
+    ['added', true],
+    ['added', true],
+  ])
 })
 
 test('200 photos are stored one at a time, and read back only when sent', async () => {

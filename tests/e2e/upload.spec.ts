@@ -119,6 +119,34 @@ test('a new PIN in the middle asks for it, then carries on', async ({ page, brow
   await expect(guest.getByText('3 photos added')).toBeVisible({ timeout: 40_000 })
 })
 
+test('a refusal that comes late does not strand photos on an open event', async ({ page, browser }) => {
+  const { event, guest } = await eventWithGuest(page, browser)
+  await guest.goto(`/e/${event.code}`)
+  let refusals = 0
+  await guest.route('**/api/e/*/uploads', (r) =>
+    refusals++ < 2 ? r.fulfill({ status: 401, json: { error: { code: 'pin_required', message: 'This event needs a PIN.' } } }) : r.continue())
+  await choose(guest, await pictures(2))
+  await guest.getByRole('button', { name: 'Upload 2 photos' }).click()
+  await expect(guest.getByText('2 photos added')).toBeVisible({ timeout: 30_000 })
+})
+
+test('a new PIN entered in a second tab also finishes the first one', async ({ page, browser }) => {
+  const { event, guest } = await eventWithGuest(page, browser)
+  await guest.goto(`/e/${event.code}`)
+  const reconnect = await cutOff(guest, '**/api/storage/**/incoming/**')
+  await choose(guest, await pictures(2))
+  await guest.getByRole('button', { name: 'Upload 2 photos' }).click()
+  await expect(guest.getByText('No signal, will retry').first()).toBeVisible()
+  await hostApi(page, 'PUT', `/api/host/events/${event.id}/pin`, { pin: '4821' })
+  reconnect()
+  await expect(guest.getByText('2 photos are waiting')).toBeVisible({ timeout: 30_000 })
+  const second = await guest.context().newPage()
+  await second.goto(`/e/${event.code}`)
+  await second.getByLabel('PIN').fill('4821')
+  await second.getByRole('button', { name: 'Open gallery' }).click()
+  await expect.poll(() => stored(event.id), { timeout: 30_000 }).toBe(2)
+})
+
 test('a new link in the middle: the old page says so, the new one carries on', async ({ page, browser }) => {
   const { event, guest } = await eventWithGuest(page, browser)
   await guest.goto(`/e/${event.code}`)

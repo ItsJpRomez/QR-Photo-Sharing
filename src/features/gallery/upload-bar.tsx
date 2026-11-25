@@ -7,7 +7,9 @@ import { Button } from '@/features/ui/button'
 import type { QueueItem } from '@/features/upload-queue/types'
 import { getQueue, useQueueItems } from '@/features/upload-queue/use-queue'
 import { errorMessage, isErrorCode } from '@/lib/error-text'
+import { api } from '@/lib/api'
 import { qk } from './cache'
+import { eventApi, type EventDto } from './queries'
 
 function stateText(i: QueueItem): string {
   switch (i.state) {
@@ -26,12 +28,13 @@ function stateText(i: QueueItem): string {
     case 'needs_access':
       return 'Paused: enter the PIN, or open the new link from the host'
     case 'failed':
+      if (i.reason === 'unreadable') return "Failed: this phone couldn't open the photo. If it's kept online, open it in your photos app first, then choose it again."
       if (i.reason === 'lost') return 'Failed: this browser no longer has the photo. Please choose it again.'
       return `Failed: ${isErrorCode(i.reason) ? errorMessage(i.reason) : 'Something went wrong. Please try again.'}`
   }
 }
 
-const CAN_RETRY = (i: QueueItem) => i.state === 'failed' && !['removed_by_host', 'too_large', 'bad_type', 'lost', 'conflict'].includes(i.reason ?? '')
+const CAN_RETRY = (i: QueueItem) => i.state === 'failed' && !['removed_by_host', 'too_large', 'bad_type', 'lost', 'unreadable', 'conflict'].includes(i.reason ?? '')
 
 export function queueSummary(items: readonly QueueItem[]): string {
   const left = items.filter((i) => !i.settled && i.state !== 'added' && i.state !== 'failed')
@@ -60,10 +63,26 @@ export function UploadBar({ eventId, code }: { eventId: string; code: string }) 
   const paused = items.some((i) => i.state === 'needs_access')
   const failed = items.some((i) => i.state === 'failed')
 
-  // Find out whether it's the PIN or the link that changed.
+  const closed = items.some((i) => i.state === 'closed')
+
+  // Find out what changed. If the event turns out to be open to us after all,
+  // the refusal was an old answer arriving late, and the photos go on.
   useEffect(() => {
-    if (paused) void client.invalidateQueries({ queryKey: qk.event(code) })
-  }, [paused, client, code])
+    if (!paused && !closed) return
+    let stopped = false
+    const ask = async () => {
+      const event = await client.fetchQuery({ queryKey: qk.event(code), queryFn: () => api<EventDto>(eventApi(code)), staleTime: 0 }).catch(() => null)
+      if (stopped || !event || event.pinRequired) return
+      if (paused) getQueue().resumeAccess(event.id, code)
+      if (closed && event.canUpload) getQueue().reopen(event.id)
+    }
+    void ask()
+    const again = setInterval(ask, 10_000)
+    return () => {
+      stopped = true
+      clearInterval(again)
+    }
+  }, [paused, closed, client, code])
 
   if (!items.length) return null
   const done = items.every((i) => i.settled || i.state === 'added')
@@ -90,7 +109,7 @@ export function UploadBar({ eventId, code }: { eventId: string; code: string }) 
           )}
         </div>
       </div>
-      {!done && items.some((i) => !i.persisted && !i.settled) && (
+      {!done && items.some((i) => !i.persisted && !i.settled && i.state !== 'failed') && (
         <p className="px-4 pb-2 text-sm font-semibold text-danger">Don&apos;t close this page. Your phone is too full to keep these photos safe until they finish.</p>
       )}
       {expanded && (

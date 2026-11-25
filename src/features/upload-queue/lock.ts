@@ -11,44 +11,66 @@ export class LeaseLock implements LeaderLock {
     private readonly owner: string,
   ) {}
 
-  request(onHeld: () => void): () => void {
+  request(onHeld: () => void, onLost: () => void = () => {}) {
     let held = false
     let stopped = false
     let cancel = () => {}
-    const tick = async () => {
-      const mine = await this.store.claim(this.owner, this.clock.now(), LEASE_MS).catch(() => false)
+    const tick = async (byForce = false) => {
+      const mine = await this.store.claim(this.owner, this.clock.now(), LEASE_MS, byForce).catch(() => false)
       if (stopped) return
-      if (mine && !held) {
-        held = true
-        onHeld()
+      if (mine !== held) {
+        held = mine
+        if (mine) onHeld()
+        else onLost()
       }
+      cancel()
       cancel = this.clock.after(RENEW_MS, () => void tick())
     }
     void tick()
-    return () => {
-      stopped = true
-      cancel()
-      void this.store.release(this.owner).catch(() => {})
+    return {
+      release: () => {
+        stopped = true
+        cancel()
+        void this.store.release(this.owner).catch(() => {})
+      },
+      steal: () => void tick(true),
     }
   }
 }
 
 /** The browser's own lock, which is let go even if the tab crashes. */
 export class WebLock implements LeaderLock {
-  request(onHeld: () => void): () => void {
-    const abort = new AbortController()
+  request(onHeld: () => void, onLost: () => void = () => {}) {
+    const waiting = new AbortController()
+    let released = false
+    let held = false
     let letGo = () => {}
-    navigator.locks
-      .request('upload-queue', { signal: abort.signal }, () => {
-        onHeld()
-        return new Promise<void>((resolve) => {
-          letGo = resolve
+    const ask = (options: LockOptions) =>
+      navigator.locks
+        .request('upload-queue', options, () => {
+          if (released || held) return
+          held = true
+          onHeld()
+          return new Promise<void>((resolve) => {
+            letGo = resolve
+          })
         })
-      })
-      .catch(() => {})
-    return () => {
-      abort.abort()
-      letGo()
+        .catch(() => {
+          // Another tab took it.
+          if (!held || released) return
+          held = false
+          onLost()
+        })
+    void ask({ signal: waiting.signal })
+    return {
+      release: () => {
+        released = true
+        waiting.abort()
+        letGo()
+      },
+      steal: () => {
+        if (!held && !released) void ask({ steal: true })
+      },
     }
   }
 }

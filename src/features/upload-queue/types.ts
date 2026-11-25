@@ -67,18 +67,18 @@ export interface Transport {
 
 export interface QueueStore {
   list(): Promise<QueueItem[]>
-  add(item: QueueItem, file: Blob): Promise<void>
+  add(item: QueueItem, file: { data: ArrayBuffer; type: string }): Promise<void>
   update(item: QueueItem): Promise<void>
   file(clientId: string): Promise<Blob | null>
   remove(clientId: string): Promise<void>
   /** Takes or renews a short claim. False while someone else holds it. */
-  claim(owner: string, now: number, forMs: number): Promise<boolean>
+  claim(owner: string, now: number, forMs: number, byForce?: boolean): Promise<boolean>
   release(owner: string): Promise<void>
 }
 
-/** Makes sure only one tab sends. Calls back when this tab may. */
+/** Makes sure only one tab sends. Calls back when this tab may, and when it no longer may. */
 export interface LeaderLock {
-  request(onHeld: () => void): () => void
+  request(onHeld: () => void, onLost?: () => void): { release(): void; steal(): void }
 }
 
 export interface Clock {
@@ -86,8 +86,20 @@ export interface Clock {
   after(ms: number, fn: () => void): () => void
 }
 
-/** Lets tabs tell each other that the queue changed, and which photos are finished. */
+export type TabCommand =
+  | { do: 'resume'; eventId: string; code: string }
+  | { do: 'reopen'; eventId: string }
+  | { do: 'retry' | 'remove'; clientId: string }
+  /** I'm the tab being looked at: is anyone in front already sending? */
+  | { do: 'front' }
+  /** Yes, I am. */
+  | { do: 'sending' }
+
+/** Sent with nothing in it, it means only that the queue changed. */
+export type TabMessage = { done?: QueueItem[]; command?: TabCommand }
+
+/** Lets tabs tell each other what changed, what finished, and what the guest asked for. */
 export interface Channel {
-  post(done: QueueItem[]): void
-  listen(fn: (done: QueueItem[]) => void): () => void
+  post(message: TabMessage): void
+  listen(fn: (message: TabMessage) => void): () => void
 }

@@ -9,62 +9,88 @@ interface Schema extends DBSchema {
   claims: { key: string; value: { owner: string; until: number } }
 }
 
-export class IdbStore implements QueueStore {
-  private opened: Promise<IDBPDatabase<Schema>> | undefined
+type Database = IDBPDatabase<Schema>
 
-  private db(): Promise<IDBPDatabase<Schema>> {
+export class IdbStore implements QueueStore {
+  private opened: Promise<Database> | undefined
+
+  private db(): Promise<Database> {
+    const forget = () => {
+      this.opened = undefined
+    }
     this.opened ??= openDB<Schema>('upload-queue', 1, {
       upgrade(db) {
         db.createObjectStore('items', { keyPath: 'clientId' }).createIndex('addedAt', 'addedAt')
         db.createObjectStore('files')
         db.createObjectStore('claims')
       },
+      // Phones may close it while the page is in the background.
+      terminated: forget,
     })
-    this.opened.catch(() => {
-      this.opened = undefined
-    })
+    this.opened.catch(forget)
     return this.opened
   }
 
-  async list() {
-    return (await this.db()).getAllFromIndex('items', 'addedAt')
+  /** Runs on the open database, opening it again once if it was closed behind us. */
+  private async use<T>(work: (db: Database) => Promise<T>): Promise<T> {
+    const db = await this.db()
+    try {
+      return await work(db)
+    } catch (err) {
+      if ((err as DOMException).name !== 'InvalidStateError') throw err
+      this.opened = undefined
+      return work(await this.db())
+    }
   }
 
-  async add(item: QueueItem, file: Blob) {
-    const data = await file.arrayBuffer()
-    const tx = (await this.db()).transaction(['items', 'files'], 'readwrite')
-    await Promise.all([tx.objectStore('items').put(item), tx.objectStore('files').put({ data, type: file.type }, item.clientId), tx.done])
+  list() {
+    return this.use((db) => db.getAllFromIndex('items', 'addedAt'))
   }
 
-  async update(item: QueueItem) {
-    const tx = (await this.db()).transaction('items', 'readwrite')
-    // Never brings back something that was removed meanwhile.
-    if (await tx.store.getKey(item.clientId)) await tx.store.put(item)
-    await tx.done
+  add(item: QueueItem, file: { data: ArrayBuffer; type: string }) {
+    return this.use(async (db) => {
+      const tx = db.transaction(['items', 'files'], 'readwrite')
+      await Promise.all([tx.objectStore('items').put(item), tx.objectStore('files').put(file, item.clientId), tx.done])
+    })
+  }
+
+  update(item: QueueItem) {
+    return this.use(async (db) => {
+      const tx = db.transaction('items', 'readwrite')
+      // Never brings back something that was removed meanwhile.
+      if (await tx.store.getKey(item.clientId)) await tx.store.put(item)
+      await tx.done
+    })
   }
 
   async file(clientId: string) {
-    const stored = await (await this.db()).get('files', clientId)
+    const stored = await this.use((db) => db.get('files', clientId))
     return stored ? new Blob([stored.data], { type: stored.type }) : null
   }
 
-  async remove(clientId: string) {
-    const tx = (await this.db()).transaction(['items', 'files'], 'readwrite')
-    await Promise.all([tx.objectStore('items').delete(clientId), tx.objectStore('files').delete(clientId), tx.done])
+  remove(clientId: string) {
+    return this.use(async (db) => {
+      const tx = db.transaction(['items', 'files'], 'readwrite')
+      await Promise.all([tx.objectStore('items').delete(clientId), tx.objectStore('files').delete(clientId), tx.done])
+    })
   }
 
-  async claim(owner: string, now: number, forMs: number) {
-    const tx = (await this.db()).transaction('claims', 'readwrite')
-    const current = await tx.store.get('sender')
-    const free = !current || current.owner === owner || current.until <= now
-    if (free) await tx.store.put({ owner, until: now + forMs }, 'sender')
-    await tx.done
-    return free
+  claim(owner: string, now: number, forMs: number, byForce = false) {
+    return this.use(async (db) => {
+      const tx = db.transaction('claims', 'readwrite')
+      const current = await tx.store.get('sender')
+      const free = byForce || !current || current.owner === owner || current.until <= now
+      if (free) await tx.store.put({ owner, until: now + forMs }, 'sender')
+      await tx.done
+      return free
+    })
   }
 
-  async release(owner: string) {
-    const tx = (await this.db()).transaction('claims', 'readwrite')
-    if ((await tx.store.get('sender'))?.owner === owner) await tx.store.delete('sender')
-    await tx.done
+  release(owner: string) {
+    return this.use(async (db) => {
+      const tx = db.transaction('claims', 'readwrite')
+      if ((await tx.store.get('sender'))?.owner === owner) await tx.store.delete('sender')
+      await tx.done
+    })
   }
 }

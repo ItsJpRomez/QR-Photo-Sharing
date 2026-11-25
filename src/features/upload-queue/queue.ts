@@ -8,6 +8,8 @@ import {
   type QueueItem,
   type QueueStore,
   type Reserved,
+  type TabCommand,
+  type TabMessage,
   type Transport,
   type UploadState,
 } from './types'
@@ -18,6 +20,8 @@ export type QueueOptions = {
   clock: Clock
   random: () => number
   online: () => boolean
+  /** Whether this tab is the one being looked at. */
+  visible: () => boolean
   lock: LeaderLock
   channel: Channel
 }
@@ -25,6 +29,8 @@ export type QueueOptions = {
 const AT_ONCE = 2
 const MAX_WAIT_MS = 60_000
 const POLL_MS = 3000
+/** How long to wait for the sending tab to answer before taking over. */
+const ANSWER_MS = 1500
 
 /** Answers that will not change by asking again. */
 const FINAL = new Set(['bad_type', 'too_large', 'gallery_full', 'guest_limit', 'removed_by_host', 'conflict', 'bad_input', 'forbidden'])
@@ -52,7 +58,8 @@ export class UploadQueue {
   private saving = 0
   private running = false
   private leader = false
-  private letGo = () => {}
+  private lock: ReturnType<LeaderLock['request']> | undefined
+  private cancelTakeover: (() => void) | undefined
   private unlisten = () => {}
   private cancelPoll: (() => void) | undefined
 
@@ -70,10 +77,11 @@ export class UploadQueue {
   start(): void {
     if (this.running) return
     this.running = true
-    this.unlisten = this.o.channel.listen((done) => void this.heardFromAnotherTab(done))
+    this.unlisten = this.o.channel.listen((m) => void this.heardFromAnotherTab(m))
     void this.reload().then(() => {
       if (!this.running) return
-      this.letGo = this.o.lock.request(() => void this.becomeLeader())
+      this.askToSend()
+      if (this.o.visible()) this.comeToFront()
       this.pump() // photos held only in this tab's memory don't need the lock
     })
   }
@@ -87,8 +95,10 @@ export class UploadQueue {
     this.wakeups.clear()
     this.cancelPoll?.()
     this.cancelPoll = undefined
+    this.cancelTakeover?.()
     this.unlisten()
-    this.letGo()
+    this.lock?.release()
+    this.lock = undefined
   }
 
   /** Photos are still being copied into storage. Until then, closing the page would lose them. */
@@ -130,18 +140,24 @@ export class UploadQueue {
       this.adding.add(item.clientId)
       for (const ids of this.addedDuring) ids.add(item.clientId)
       this.list.push(item)
-      try {
-        await this.o.store.add(item, file)
-      } catch {
-        item.persisted = persisted = false
-        this.inMemory.set(item.clientId, file)
+      const data = await file.arrayBuffer().catch(() => null)
+      if (!data) {
+        // Often a photo kept online that the phone couldn't fetch.
+        Object.assign(item, { state: 'failed', reason: 'unreadable', persisted: false })
+      } else {
+        try {
+          await this.o.store.add(item, { data, type: file.type })
+        } catch {
+          item.persisted = persisted = false
+          this.inMemory.set(item.clientId, new Blob([data], { type: file.type }))
+        }
       }
       this.adding.delete(item.clientId)
       onSaved(n + 1)
       this.show()
       this.pump()
     }
-    this.o.channel.post([])
+    this.o.channel.post({})
     return { persisted }
   }
 
@@ -153,20 +169,13 @@ export class UploadQueue {
   }
 
   retry(clientId: string): void {
-    const item = this.find(clientId)
-    if (item?.state !== 'failed') return
-    this.notBefore.delete(clientId)
-    this.set(item, { state: 'waiting', attempts: 0, progress: 0, reason: undefined })
-    this.pump()
+    this.tellAll({ do: 'retry', clientId })
   }
 
   async remove(clientId: string): Promise<void> {
-    this.sending.get(clientId)?.abort()
-    this.forget(clientId)
-    this.list = this.list.filter((i) => i.clientId !== clientId)
-    this.show()
+    this.tellAll({ do: 'remove', clientId })
     await this.o.store.remove(clientId).catch(() => {})
-    this.o.channel.post([])
+    this.o.channel.post({})
   }
 
   /** Takes finished photos off the list. */
@@ -177,16 +186,94 @@ export class UploadQueue {
 
   /** The host opened uploads again. */
   reopen(eventId: string): void {
-    this.wake((i) => i.eventId === eventId && i.state === 'closed')
+    this.tellAll({ do: 'reopen', eventId })
   }
 
   /** The guest entered the new PIN, or opened the new link. */
   resumeAccess(eventId: string, code: string): void {
+    this.tellAll({ do: 'resume', eventId, code })
+  }
+
+  isSender(): boolean {
+    return this.leader
+  }
+
+  /**
+   * This tab is the one being looked at, so it should send: phones freeze the
+   * others. A sender that is itself in front is left alone, one that isn't steps
+   * down, and one that can't answer is taken over from.
+   */
+  comeToFront(): void {
+    if (!this.running || this.leader) return
+    this.cancelTakeover?.()
+    this.cancelTakeover = this.o.clock.after(ANSWER_MS, () => {
+      this.cancelTakeover = undefined
+      if (this.running && !this.leader) this.lock?.steal()
+    })
+    this.o.channel.post({ command: { do: 'front' } })
+  }
+
+  /** What the guest asks for in one tab, every tab does: only one of them is sending. */
+  private tellAll(command: TabCommand): void {
+    this.obey(command)
+    this.o.channel.post({ command })
+  }
+
+  private obey(command: TabCommand): void {
+    switch (command.do) {
+      case 'retry': {
+        const item = this.find(command.clientId)
+        if (item?.state !== 'failed') return
+        this.notBefore.delete(item.clientId)
+        this.set(item, { state: 'waiting', attempts: 0, progress: 0, reason: undefined })
+        return this.pump()
+      }
+      case 'remove':
+        this.sending.get(command.clientId)?.abort()
+        this.forget(command.clientId)
+        this.list = this.list.filter((i) => i.clientId !== command.clientId)
+        return this.show()
+      case 'reopen':
+        return this.wake((i) => i.eventId === command.eventId && i.state === 'closed')
+      case 'resume':
+        return this.resume(command.eventId, command.code)
+      case 'front':
+        if (!this.leader) return
+        if (this.o.visible()) return this.o.channel.post({ command: { do: 'sending' } })
+        this.lock?.release()
+        this.stepDown()
+        return this.askToSend()
+      case 'sending':
+        this.cancelTakeover?.()
+        this.cancelTakeover = undefined
+    }
+  }
+
+  private resume(eventId: string, code: string): void {
     this.codes.set(eventId, code)
     for (const i of this.list) {
       if (i.eventId === eventId && i.code !== code && !i.settled && i.state !== 'needs_access') this.set(i, { code })
     }
     this.wake((i) => i.eventId === eventId && i.state === 'needs_access', { code })
+  }
+
+  private askToSend(): void {
+    this.lock = this.o.lock.request(
+      () => void this.becomeLeader(),
+      () => {
+        // Taken by the tab in front. Wait in line for another turn.
+        this.stepDown()
+        this.lock?.release()
+        if (this.running) this.askToSend()
+      },
+    )
+  }
+
+  private stepDown(): void {
+    this.leader = false
+    for (const [id, c] of this.sending) if (this.find(id)?.persisted) c.abort()
+    this.cancelPoll?.()
+    this.cancelPoll = undefined
   }
 
   private wake(which: (i: QueueItem) => boolean, also: Partial<QueueItem> = {}): void {
@@ -213,7 +300,7 @@ export class UploadQueue {
   private set(item: QueueItem, change: Partial<QueueItem>): void {
     Object.assign(item, change)
     this.show()
-    if (item.persisted && !item.settled) void this.o.store.update({ ...item }).then(() => this.o.channel.post([]), () => {})
+    if (item.persisted && !item.settled) void this.o.store.update({ ...item }).then(() => this.o.channel.post({}), () => {})
   }
 
   private async reload(): Promise<void> {
@@ -232,7 +319,8 @@ export class UploadQueue {
     this.show()
   }
 
-  private async heardFromAnotherTab(done: QueueItem[]): Promise<void> {
+  private async heardFromAnotherTab({ done = [], command }: TabMessage): Promise<void> {
+    if (command) this.obey(command)
     for (const item of done) {
       const mine = this.find(item.clientId)
       if (mine) Object.assign(mine, item)
@@ -320,7 +408,8 @@ export class UploadQueue {
       )
       if (signal.aborted) return
       step = 'complete'
-      this.arrived(item, await this.o.transport.complete({ ...item }))
+      const completed = await this.o.transport.complete({ ...item })
+      if (!signal.aborted) this.arrived(item, completed)
     } catch (err) {
       if (signal.aborted) return
       const e = err instanceof TransportError ? err : new TransportError('internal', 500, String(err))
@@ -385,7 +474,7 @@ export class UploadQueue {
     void this.o.store
       .remove(item.clientId)
       .catch(() => {})
-      .then(() => this.o.channel.post(done))
+      .then(() => this.o.channel.post({ done }))
   }
 
   private tracked(): QueueItem[] {
@@ -403,7 +492,8 @@ export class UploadQueue {
   private async poll(): Promise<void> {
     const waiting = this.tracked()
     if (!this.running || !waiting.length || !this.o.online()) return this.schedulePoll()
-    for (const [code, items] of Map.groupBy(waiting, (i) => i.code)) {
+    for (const code of new Set(waiting.map((i) => i.code))) {
+      const items = waiting.filter((i) => i.code === code)
       for (let at = 0; at < items.length; at += 100) {
         const batch = items.slice(at, at + 100)
         const answers = await this.o.transport
