@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test'
-import { lastMail, PASSWORD, signUpHost } from './helpers'
+import { expect } from '@playwright/test'
+import { lastMail, PASSWORD, signUpHost, test } from './helpers'
 
 test('a host signs up, confirms by email and reaches the dashboard', async ({ page }) => {
   await signUpHost(page)

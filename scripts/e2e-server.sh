@@ -2,7 +2,7 @@
 # Builds the app and runs web + worker against a throwaway database for browser tests.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export NODE_ENV=production
+export NODE_ENV=production E2E_BUILD=1
 export DATABASE_URL=${E2E_DATABASE_URL:-postgres://localhost/event_photos_e2e}
 export APP_URL=${E2E_APP_URL:-http://localhost:3200} APP_SECRET=e2e-secret-e2e-secret-e2e-secret-000
 export STORAGE_DRIVER=disk STORAGE_DIR=.data/e2e-storage ALLOW_LOCAL_DRIVERS=1
