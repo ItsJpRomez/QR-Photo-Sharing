@@ -25,9 +25,9 @@ describe('the PNG', () => {
     while (!dark(left, first)) left++
     let run = 0
     while (dark(left + run, first)) run++
-    const module = run / 7
-    expect(first / module).toBeGreaterThanOrEqual(3.95)
-    expect(left / module).toBeGreaterThanOrEqual(3.95)
+    const each = run / 7
+    expect(first / each).toBeGreaterThanOrEqual(3.95)
+    expect(left / each).toBeGreaterThanOrEqual(3.95)
   })
 })
 
