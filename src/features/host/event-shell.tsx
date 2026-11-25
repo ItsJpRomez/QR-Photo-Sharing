@@ -1,0 +1,52 @@
+'use client'
+
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import type { ReactNode } from 'react'
+import { cx } from '@/features/ui/cx'
+import { Notice } from '@/features/ui/field'
+import type { HostEventDto } from '@/modules/events/events'
+import { formatDate } from './format'
+import { useHostEvent } from './queries'
+
+const TABS = [
+  ['', 'Photos'],
+  ['/organize', 'Albums & tags'],
+  ['/settings', 'Settings'],
+] as const
+
+export function EventShell({ initial, children }: { initial: HostEventDto; children: ReactNode }) {
+  const path = usePathname()
+  const { data: event = initial } = useHostEvent(initial.id, initial)
+  const base = `/host/events/${initial.id}`
+  return (
+    <div className="mx-auto grid max-w-4xl gap-6 px-4 py-8">
+      <div>
+        <h1 className="text-3xl font-bold">{event.name}</h1>
+        <p className="text-ink-soft">
+          {formatDate(event.eventDate)}, <a className="font-semibold text-plum underline" href={`/e/${event.code}`}>open the gallery</a>
+        </p>
+      </div>
+      {event.frozen && <Notice>Uploads are closed. Guests can look but not add photos, hearts or comments.</Notice>}
+      <nav aria-label="Event" className="flex gap-1 overflow-x-auto border-b border-line">
+        {TABS.map(([rest, label]) => {
+          const current = path === base + rest
+          return (
+            <Link
+              key={rest}
+              href={base + rest}
+              aria-current={current ? 'page' : undefined}
+              className={cx(
+                '-mb-px shrink-0 border-b-4 px-3 py-2 font-semibold',
+                current ? 'border-plum text-ink' : 'border-transparent text-ink-soft hover:text-ink',
+              )}
+            >
+              {label}
+            </Link>
+          )
+        })}
+      </nav>
+      <main>{children}</main>
+    </div>
+  )
+}

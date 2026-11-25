@@ -30,3 +30,22 @@ export async function signUpHost(page: Page): Promise<string> {
   await expect(page.getByRole('heading', { name: 'Your events' })).toBeVisible()
   return email
 }
+
+export type EventOptions = { name?: string; albums?: string[]; tags?: string[]; pin?: string | null; welcome?: string }
+export type TestEvent = { id: string; code: string; url: string; tvUrl: string }
+
+/** Creates an event through the API, as the signed-in host on this page. */
+export async function createEvent(page: Page, o: EventOptions = {}): Promise<TestEvent> {
+  const res = await page.request.post('/api/host/events', {
+    headers: { origin: 'http://localhost:3200' },
+    data: { name: 'Ana & Marco', eventDate: '2026-06-12', timeZone: 'Asia/Manila', welcome: '', accent: '#4a2370', albums: [], tags: [], pin: null, ...o },
+  })
+  expect(res.status(), await res.text()).toBe(201)
+  return (await res.json()) as TestEvent
+}
+
+export async function hostApi(page: Page, method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, data: unknown = {}) {
+  const res = await page.request.fetch(path, { method, headers: { origin: 'http://localhost:3200' }, data })
+  expect(res.ok(), `${method} ${path}: ${await res.text()}`).toBe(true)
+  return res.json()
+}

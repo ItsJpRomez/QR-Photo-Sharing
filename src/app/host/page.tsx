@@ -1,7 +1,8 @@
+import type { Metadata } from 'next'
+import { Dashboard } from '@/features/host/dashboard'
+
+export const metadata: Metadata = { title: 'Your events' }
+
 export default function HostPage() {
-  return (
-    <main className="mx-auto max-w-4xl px-4 py-12">
-      <h1 className="text-3xl font-bold">Your events</h1>
-    </main>
-  )
+  return <Dashboard />
 }

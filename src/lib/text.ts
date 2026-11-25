@@ -20,7 +20,7 @@ export function firstCharacters(s: string, max: number): string {
 }
 
 // Control characters, and the invisible marks that can flip the direction of the text around them.
-// eslint-disable-next-line no-control-regex
+ 
 const UNSAFE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/g
 
 type Options = { min?: number; multiline?: boolean }

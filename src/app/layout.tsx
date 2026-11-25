@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { config } from '@/config'
+import { Providers } from '@/features/ui/providers'
 import './globals.css'
 
 export const dynamic = 'force-dynamic'
@@ -13,7 +14,9 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1, view
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   )
 }
